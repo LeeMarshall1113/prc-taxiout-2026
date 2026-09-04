@@ -150,10 +150,17 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
         (pl.col("SCHED_TIME_UTC_mvt") - pl.col("EOBT_1_flt")).dt.total_seconds().alias("sched_vs_eobt"),
     )
 
-    # How busy this stand/runway combination is overall — a crude proxy for
-    # apron layout and taxi distance, which we have no geometry for.
+    # How busy this stand/runway combination is -- a crude proxy for apron
+    # layout and taxi distance, which we have no geometry for.
+    #
+    # Expressed as movements per operating day, NOT a raw count. build() is
+    # called per monthly file in training but on the whole ranking file at
+    # prediction time, and the ranking file holds two months, so a raw count
+    # would arrive about twice as large at serve time than at fit time. Dividing
+    # by the number of distinct dates present makes the two agree.
+    n_days = max(frame.select(pl.col("MVT_TIME_UTC_mvt").dt.date().n_unique()).item(), 1)
     pair = frame.group_by("ADEP_mvt", "STAND_mvt", "RUNWAY_mvt").agg(
-        pl.len().alias("stand_runway_pair_n")
+        (pl.len() / n_days).alias("stand_runway_pair_n")
     )
     frame = frame.join(pair, on=["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"], how="left")
 

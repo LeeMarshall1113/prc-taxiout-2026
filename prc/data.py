@@ -59,6 +59,24 @@ def pull(prefix: str = "", dest: Path = RAW_DIR, overwrite: bool = False) -> lis
     return written
 
 
+def upload_submission(path: Path, bucket: str | None = None) -> str:
+    """Put a submission file in the team's own bucket, which is how you submit.
+
+    The ranking script watches the team bucket; there is no upload endpoint. It
+    rejects the file outright on any id mismatch, so call prc.submit.check first
+    -- build() already does.
+    """
+    from .config import TEAM_BUCKET
+
+    client, _ = _client()
+    bucket = bucket or TEAM_BUCKET
+    key = path.name
+    client.upload_file(str(path), bucket, key)
+    size = path.stat().st_size
+    print(f"uploaded {key} ({size / 1e6:.2f} MB) to s3://{bucket}/{key}")
+    return key
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["list", "pull"])
