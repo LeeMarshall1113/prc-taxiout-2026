@@ -36,6 +36,13 @@ Sixteen rows out of 2.08 million carry a fifth of the variance.
 
 ## The 24h rollover is real but mostly invisible
 
+> **CORRECTED 2026-09-04, later the same day.** This section is right about the
+> ~87,000s rows but I over-generalised it into a story about the whole tail.
+> Measured on the LIRF/no-plan group: only **1.2%** of its long rows are within
+> an hour of 86,400s, and 92% are below 20,000s with a median of 7,738s. The
+> rollover explains a dozen-odd extreme rows, not the group. Those long taxi
+> times are, as far as the data shows, real. See `2026-09-04-v3-dead-ends.md`.
+
 Monthly maxima cluster at 87,177 / 87,247 / 87,341 / 87,543 / 87,598 / 87,605 /
 88,132 / 88,392s — all ~86,400 plus a normal taxi. These are day-rollover
 errors in the off-block timestamp, not 24-hour taxis.
