@@ -79,6 +79,22 @@ local, and treat the gap as an offset rather than trying to correct it. See
   arc-agi-2 needs. Cap thread counts anyway; the box is 8C/16T and other agents
   are on it.
 
-## Licence
+## Licence and visibility
 
 GPLv3, as required for prize eligibility. See [LICENSE](LICENSE).
+
+**This repo is private and must be public before 2026-10-11 to be
+prize-eligible.** It starts private so the approach is not visible to the rest
+of the field during the 37 days the competition runs; the rules only require the
+code to be open at the end. Flipping it is one command:
+
+```bash
+gh repo edit LeeMarshall1113/prc-taxiout-2026 --visibility public --accept-visibility-change-consequences
+```
+
+Before flipping, re-run the secret scan — the tree must stay clean, since a
+public push cannot be taken back:
+
+```bash
+git grep -nIE '(clientSecret|secretKey|aws_secret|BEGIN [A-Z ]*PRIVATE KEY)' -- ':!docs' ':!README.md'
+```
