@@ -47,13 +47,27 @@ Train on full-year 2025 movements. Predict Jan + Jul 2026. REPORTED.
 
 ## Data
 
-- Training: **12 monthly parquet files, ~283 MB total**, 2025-01-01 → 2025-12-31.
-- Ranking set: **one parquet, ~27 MB**, Jan + Jul 2026, departure taxi-time
-  columns blanked.
-- Submission template: **~1.1 MB parquet, two columns** — `MVT_ID_mvt` and
-  `TAXITIME_SEC_mvt`.
-- Military, Head of State, and Sensitive movements are excluded.
-- All REPORTED; confirm on first download with `python -m prc.schema`.
+VERIFIED 2026-09-04 by listing the bucket. **The website's figures are wrong** —
+it says ~283 MB of training, a 27 MB ranking file and a 1.1 MB template. Real
+sizes below; the ranking file is 61% bigger than advertised.
+
+Endpoint `https://s3.opensky-network.org`, bucket **`prc-2026-datasets`**,
+14 objects, **330.2 MB**:
+
+| object | size |
+|---|---|
+| `training_2025-<mm>-01_2025-<mm+1>-01.parquet` × 12 | 19.8 – 26.0 MB each, 285.0 MB total |
+| `ranking.parquet` | 43.6 MB |
+| `submitting.parquet` | 1.7 MB |
+
+Training files are dated 2026-08-13; `ranking.parquet` and `submitting.parquet`
+were rewritten 2026-09-04 — worth re-checking their checksums before the close in
+case the organisers reissue them.
+
+The team also gets a private bucket, **`prc-2026-jolly-lobster`**, empty on
+issue. That is where submissions are uploaded.
+
+Military, Head of State, and Sensitive movements are excluded. REPORTED.
 
 ## Submission format
 
@@ -73,6 +87,11 @@ mismatches are rejected. REPORTED; `prc.submit` enforces it locally.
 - Announcements go to the OSN Discord `#prc-data-competition`; the site's own
   leaderboard widget has been **broken since 2026-09-01** (Observable framework
   migration), which is why we read the API directly.
+
+## Our team
+
+**`jolly-lobster`** — approved 2026-09-04 (team bucket created 18:30 UTC).
+Submissions must therefore be named `jolly-lobster_v<N>.parquet`.
 
 ## Field size
 

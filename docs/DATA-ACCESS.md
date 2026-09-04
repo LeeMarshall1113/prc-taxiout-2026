@@ -16,17 +16,21 @@ downloaded from your OpenSky Network account page.
   repo has to go public under GPLv3 at the end, so keep secrets out of the tree
   entirely.
 
-**2. Competition bucket keys** — MinIO/S3 access key + secret for the challenge's
-own parquet bucket.
+**2. Competition bucket keys** — MinIO service-account JSON from
+`s3-console.opensky-network.org`: `accessKey` (20 chars), `secretKey` (40),
+`api: s3v4`, `path: auto`, and a `url` field.
 
-- Status: **not yet issued.** They arrive by email once the team-creation request
-  is approved.
-- On arrival: save the JSON outside the repo and export
-  `$PRC_BUCKET_CREDENTIALS=/path/to/it`, or export `PRC_S3_ACCESS_KEY`,
-  `PRC_S3_SECRET_KEY`, `PRC_S3_ENDPOINT`, `PRC_S3_BUCKET` directly. The endpoint
-  host and bucket name come with the email — `prc/config.py` guesses
-  `https://s3.opensky-network.org` and an empty bucket name, so both need
-  confirming.
+- Status: **issued 2026-09-04 and verified working.**
+- Location: `~/Downloads/credentials(1).json`. Override with
+  `$PRC_BUCKET_CREDENTIALS`. That filename is fragile — a second download becomes
+  `credentials(2).json`, and Downloads gets cleaned — so move it somewhere stable
+  and set the env var.
+- **The `url` field is a decoy.** It points at the console API
+  (`https://s3-console.opensky-network.org/api/v1/service-account-credentials`),
+  not the S3 endpoint. S3 is on `https://s3.opensky-network.org`; `prc/config.py`
+  ignores `url` deliberately.
+- Grants access to two buckets: `prc-2026-datasets` (read, the shared data) and
+  `prc-2026-jolly-lobster` (our team bucket, for submissions).
 
 Neither credential is ever printed in full by this codebase; the dataclasses in
 `prc/config.py` have `__repr__`s that redact the secret halves so a stray

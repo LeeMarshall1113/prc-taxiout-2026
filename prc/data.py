@@ -1,8 +1,8 @@
 """Download the competition parquet from the MinIO/S3 bucket.
 
-Untested end to end — the bucket credentials are not issued until the team is
-approved, so ``list`` is the first thing to run when they land. It will tell us
-the real object names, which the challenge page only describes in prose.
+Bucket ``prc-2026-datasets`` on ``s3.opensky-network.org``: 12 monthly training
+files, ``ranking.parquet``, and ``submitting.parquet`` (the submission
+template). 330 MB in total.
 
     python -m prc.data list
     python -m prc.data pull
@@ -22,11 +22,6 @@ def _client():
     from botocore.config import Config
 
     creds = bucket_credentials()
-    if not creds.bucket:
-        raise RuntimeError(
-            "Bucket name unknown. It comes with the approval email — set $PRC_S3_BUCKET "
-            "or put 'bucket' in the credentials JSON."
-        )
     session = boto3.session.Session(
         aws_access_key_id=creds.access_key, aws_secret_access_key=creds.secret_key
     )

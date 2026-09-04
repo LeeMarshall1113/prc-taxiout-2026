@@ -41,10 +41,15 @@ OSN_TOKEN_URL = (
     "/protocol/openid-connect/token"
 )
 
-# Set this once your team is approved; it drives submission filenames.
-TEAM_NAME = os.environ.get("PRC_TEAM_NAME", "")
+# Verified 2026-09-04 by listing the buckets the service account can see.
+TEAM_NAME = os.environ.get("PRC_TEAM_NAME", "jolly-lobster")
+S3_ENDPOINT = os.environ.get("PRC_S3_ENDPOINT", "https://s3.opensky-network.org")
+DATASETS_BUCKET = os.environ.get("PRC_S3_BUCKET", "prc-2026-datasets")
+TEAM_BUCKET = os.environ.get("PRC_S3_TEAM_BUCKET", f"prc-2026-{TEAM_NAME}")
 
 _DEFAULT_OSN_CREDS = Path.home() / "Downloads" / "credentials.json"
+# MinIO service-account JSON as downloaded from the S3 console.
+_DEFAULT_BUCKET_CREDS = Path.home() / "Downloads" / "credentials(1).json"
 
 
 @dataclass(frozen=True)
@@ -99,40 +104,37 @@ def osn_credentials(path: str | Path | None = None) -> OSNClientCredentials:
 def bucket_credentials(path: str | Path | None = None) -> BucketCredentials:
     """Load competition bucket credentials.
 
-    Reads ``$PRC_BUCKET_CREDENTIALS`` (a JSON file) or the individual environment
-    variables ``PRC_S3_ACCESS_KEY`` / ``PRC_S3_SECRET_KEY`` / ``PRC_S3_ENDPOINT`` /
-    ``PRC_S3_BUCKET``.
+    The file is the MinIO service-account JSON downloaded from
+    ``s3-console.opensky-network.org``: ``accessKey`` (20 chars), ``secretKey``
+    (40 chars), ``api``, ``path``, and a ``url`` field.
 
-    NOT YET WIRED UP: the exact endpoint host and bucket name come with the
-    approval email. Fill them in there, or via the env vars, on arrival.
+    Note that ``url`` is the *console* API endpoint, not the S3 endpoint, so it
+    is deliberately ignored — S3 lives on ``s3.opensky-network.org`` (verified
+    2026-09-04 by listing buckets against it).
+
+    Resolution order: explicit ``path`` → ``$PRC_BUCKET_CREDENTIALS`` →
+    ``~/Downloads/credentials(1).json``. Endpoint and bucket come from the
+    module constants unless the JSON overrides them.
     """
-    candidate = path or os.environ.get("PRC_BUCKET_CREDENTIALS")
-    if candidate:
-        blob = json.loads(Path(candidate).read_text(encoding="utf-8"))
-    else:
-        blob = {}
+    candidate = Path(path or os.environ.get("PRC_BUCKET_CREDENTIALS") or _DEFAULT_BUCKET_CREDS)
+    if not candidate.exists():
+        raise FileNotFoundError(
+            f"Bucket credentials not found at {candidate}. Download the service-account JSON "
+            "from the S3 console, or set $PRC_BUCKET_CREDENTIALS to its location."
+        )
+    blob = json.loads(candidate.read_text(encoding="utf-8"))
 
-    def pick(*names: str, default: str = "") -> str:
-        for name in names:
-            if blob.get(name):
-                return str(blob[name])
-            if os.environ.get(name.upper()):
-                return os.environ[name.upper()]
-        return default
-
-    access = pick("accessKey", "access_key", "PRC_S3_ACCESS_KEY")
-    secret = pick("secretKey", "secret_key", "PRC_S3_SECRET_KEY")
-    endpoint = pick("endpoint", "PRC_S3_ENDPOINT", default="https://s3.opensky-network.org")
-    bucket = pick("bucket", "PRC_S3_BUCKET", default="")
-
+    access = blob.get("accessKey") or blob.get("access_key") or os.environ.get("PRC_S3_ACCESS_KEY", "")
+    secret = blob.get("secretKey") or blob.get("secret_key") or os.environ.get("PRC_S3_SECRET_KEY", "")
     if not (access and secret):
         raise RuntimeError(
-            "No competition bucket credentials found. They arrive by email after the "
-            "team-creation request is approved. Set $PRC_BUCKET_CREDENTIALS to the JSON "
-            "file, or export PRC_S3_ACCESS_KEY / PRC_S3_SECRET_KEY / PRC_S3_ENDPOINT / "
-            "PRC_S3_BUCKET."
+            f"{candidate} has keys {sorted(blob)}; expected 'accessKey' and 'secretKey'. "
+            "If this file holds clientId/clientSecret instead, it is the OSN OAuth "
+            "credential — point $OSN_CREDENTIALS at it."
         )
-    return BucketCredentials(access, secret, endpoint, bucket)
+    return BucketCredentials(
+        access, secret, blob.get("endpoint") or S3_ENDPOINT, blob.get("bucket") or DATASETS_BUCKET
+    )
 
 
 def ensure_dirs() -> None:
