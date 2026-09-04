@@ -33,3 +33,6 @@ __pycache__/
 # --- os ---
 Thumbs.db
 .DS_Store
+
+# catboost writes a log dir wherever it is run from
+catboost_info/
