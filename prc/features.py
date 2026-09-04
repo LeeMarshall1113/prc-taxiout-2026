@@ -3,12 +3,19 @@
 Built against the real schema (see notes/2026-09-04-data-findings.md), not the
 website's description of it.
 
-The one structural fact that shapes everything here: **1.08% of departures have
-no matching flight-plan row**, and those rows hold 41.8% of the target's total
-variance. Their conditional distribution is a different animal — mean 1384s and
-sd 3398s, against 987s and 418s for the rest. ``has_flight_plan`` is therefore
-not a nuisance indicator, it is the most important feature in the set, and the
-missingness of every ``_flt`` column is left as missingness rather than imputed.
+The one structural fact that shapes everything here: a missing flight-plan row
+matters enormously, but **only at one airport**. `LIRF + no flight plan` is 1,488
+rows, 0.071% of the data, holding 37.4% of the target's total variance with a
+conditional mean of 6,531s. Away from Rome a missing flight plan is
+unremarkable — 1,019s against a global 991s. So the signal is the *interaction*,
+carried by ``airport_plan``, not ``has_flight_plan`` on its own; the flag alone
+averages Rome together with 21,000 harmless rows.
+
+It is left as a general per-airport crossing rather than a hard-coded LIRF flag:
+it is the same information without hand-picking an airport, the other nine get
+to contribute, and it does not silently break if the fault moves or a second
+airport develops one. The missingness of every ``_flt`` column is preserved
+rather than imputed.
 
 Nothing here uses ``BLOCK_TIME_UTC_mvt`` or ``TAXITIME_SEC_mvt``: both are
 blanked for departures in the ranking file. ``MVT_TIME_UTC_mvt`` (wheels-up) is
@@ -31,6 +38,7 @@ CATEGORICAL = [
     "WK_TBL_CAT_flt",
     "FLIGHT_TYPE_flt",
     "FLIGHT_RULE_mvt",
+    "airport_plan",
 ]
 
 NUMERIC = [
@@ -148,6 +156,15 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
         (mvt - pl.col("LOBT_flt")).dt.total_seconds().alias("gap_lobt"),
         (pl.col("AOBT_3_flt") - pl.col("EOBT_1_flt")).dt.total_seconds().alias("dep_delay"),
         (pl.col("SCHED_TIME_UTC_mvt") - pl.col("EOBT_1_flt")).dt.total_seconds().alias("sched_vs_eobt"),
+    )
+
+    # Per-airport crossing of the flight-plan flag. See the module docstring:
+    # a missing flight plan is only dangerous at some airports, so the model
+    # needs the pair, not the flag.
+    frame = frame.with_columns(
+        (pl.col("ADEP_mvt") + pl.lit("|") + pl.col("has_flight_plan").cast(pl.Utf8)).alias(
+            "airport_plan"
+        )
     )
 
     # How busy this stand/runway combination is -- a crude proxy for apron
