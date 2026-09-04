@@ -1,0 +1,35 @@
+# --- secrets: never commit ---
+credentials.json
+*credentials*.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- data: 283 MB of parquet, redistribution not ours to make ---
+data/
+*.parquet
+*.csv.gz
+
+# --- artifacts ---
+submissions/*.parquet
+models/
+*.cbm
+*.txt.model
+mlruns/
+
+# --- python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- os ---
+Thumbs.db
+.DS_Store

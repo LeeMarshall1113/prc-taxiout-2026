@@ -1,0 +1,12 @@
+# Pinned after the first successful install — see docs/DATA-ACCESS.md for the
+# Python 3.14 wheel situation.
+numpy
+pandas
+pyarrow
+polars
+scikit-learn
+lightgbm
+catboost
+duckdb
+boto3
+requests
