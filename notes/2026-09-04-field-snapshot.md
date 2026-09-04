@@ -1,5 +1,11 @@
 # Field snapshot — 2026-09-04 (day 4 of 41)
 
+> **SUPERSEDED the same day.** Every number below is on the 215,876-pair
+> evaluation set, which the organisers replaced with a 344,841-pair set at
+> ~09:58Z on 2026-09-04. Kept for the record because the *shape* of the field
+> still reads correctly; for live standings see
+> `2026-09-04-data-findings.md` and run `python -m prc.leaderboard`.
+
 Pulled with `python -m prc.leaderboard`. Latest scored submission at the time:
 `2026-09-04T17:33:43Z`.
 

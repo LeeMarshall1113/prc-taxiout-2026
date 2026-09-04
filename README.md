@@ -12,8 +12,14 @@ Verified competition facts, with sources and a verified/reported split, live in
 
 ## Status
 
-Scaffolding only. **We do not have the competition data yet** — the bucket keys
-arrive when the team-creation request is approved.
+Data is in hand (`data/raw`, 330 MB, not tracked). Team is **`jolly-lobster`**.
+First-contact findings are in
+[notes/2026-09-04-data-findings.md](notes/2026-09-04-data-findings.md) — read
+that before modelling; it covers the mid-competition evaluation-set change, the
+fact that the target is exactly `MVT_TIME - BLOCK_TIME` in training, and that
+squared error is dominated by a few dozen tail rows.
+
+No model yet.
 
 Working and tested:
 

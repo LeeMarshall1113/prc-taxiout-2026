@@ -75,12 +75,42 @@ def team_bests(subs: list[Submission]) -> list[tuple[str, float, int]]:
     return sorted(((t, s, counts[t]) for t, s in best.items()), key=lambda row: row[1])
 
 
+def current_pairs(subs: list[Submission]) -> int:
+    """The evaluation-set size in force, taken from the most recent submission.
+
+    The organisers reissued ranking.parquet on 2026-09-04 and the scored row
+    count jumped 215,876 -> 344,841. Scores either side of that are computed on
+    different data and must never be compared, so every ranking produced here is
+    filtered to a single evaluation set. See docs/COMPETITION-FACTS.md.
+    """
+    return max(subs, key=lambda s: s.processed_at).used_pairs
+
+
 def summarise(subs: list[Submission], top: int = 20) -> str:
-    ranked = team_bests(subs)
+    sizes = Counter(sub.used_pairs for sub in subs)
+    live = current_pairs(subs)
+    current = [sub for sub in subs if sub.used_pairs == live]
+
+    lines = [f"{len(subs)} scored submissions from {len({s.team_name for s in subs})} teams"]
+    if len(sizes) > 1:
+        lines += ["", "!! multiple evaluation-set sizes present - scores are NOT comparable:"]
+        for pairs in sorted(sizes):
+            window = [s for s in subs if s.used_pairs == pairs]
+            marker = "  <- in force" if pairs == live else "  (superseded)"
+            lines.append(
+                f"     {pairs:>7,} pairs: {sizes[pairs]:>4} subs, "
+                f"{len({s.team_name for s in window}):>3} teams, "
+                f"{min(s.processed_at for s in window)[:19]} .. "
+                f"{max(s.processed_at for s in window)[:19]}{marker}"
+            )
+        lines += ["", f"Everything below is the {live:,}-pair set only."]
+
+    ranked = team_bests(current)
     scores = [row[1] for row in ranked]
-    lines = [
-        f"{len(subs)} scored submissions from {len(ranked)} teams",
-        f"latest: {max(s.processed_at for s in subs)}",
+    lines += [
+        "",
+        f"{len(current)} submissions from {len(ranked)} teams on the current set",
+        f"latest: {max(s.processed_at for s in current)}",
         "",
         f"-- top {top} --",
     ]

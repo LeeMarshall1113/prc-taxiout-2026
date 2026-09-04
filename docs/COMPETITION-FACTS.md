@@ -9,10 +9,12 @@ Site: <https://prc-data-challenge-2026.netlify.app/>
 
 ## Task
 
-Predict **taxi-out time in seconds** (`TAXITIME_SEC_mvt`) for departures at 11
-major European airports — Frankfurt, Munich, London Heathrow, Amsterdam,
-Barcelona, Madrid, Paris CDG, Rome, Istanbul, Zürich (+1; the overview page says
-"10", the data page lists 11 — resolve against the actual parquet). REPORTED.
+Predict **taxi-out time in seconds** (`TAXITIME_SEC_mvt`) for departures at
+**10** airports — LTFM Istanbul, LFPG Paris CDG, EGLL Heathrow, EHAM Amsterdam,
+LEMD Madrid, EDDF Frankfurt, LEBL Barcelona, LIRF Rome, EDDM Munich, LSZH
+Zürich. VERIFIED 2026-09-04 from `ranking.parquet` — exactly 10 distinct
+`ADEP_mvt` values among departures. The site's data page says 11 and is wrong;
+its overview page says 10 and is right.
 
 Train on full-year 2025 movements. Predict Jan + Jul 2026. REPORTED.
 
@@ -20,8 +22,11 @@ Train on full-year 2025 movements. Predict Jan + Jul 2026. REPORTED.
 
 - **RMSE in seconds**, lower is better. VERIFIED — scores come back on that scale.
 - Teams are ranked on their **best-ever submission**, not their last. REPORTED.
-- **`usedPairs` = 215,876** on every scored submission so far — the evaluation set
-  size. VERIFIED 2026-09-04 via the leaderboard API.
+- **The evaluation set was reissued mid-competition on 2026-09-04**, between
+  08:26Z and 09:58Z: `usedPairs` went 215,876 -> **344,841**, matching the
+  reissued `ranking.parquet`. Scores across that boundary are **not comparable**;
+  707 of 734 submissions on the board are on the superseded set. VERIFIED.
+  `prc.leaderboard` filters to one set and names which is in force.
 - **There is no private split.** The ranking set *is* the public leaderboard set.
   Submissions appear unlimited: one team logged 542 in the first four days.
   VERIFIED 2026-09-04. Consequence: the metric rewards leaderboard grinding, and
