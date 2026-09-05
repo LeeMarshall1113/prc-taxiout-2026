@@ -47,6 +47,10 @@ def run_fold(frame, held: tuple[int, int], feats, cat_idx, args) -> dict:
     train = frame.filter(~month.is_in(held))
     test = frame.filter(month.is_in(held))
 
+    from . import reference
+
+    train, test = reference.attach(train, test)
+
     y_train = train[TARGET].to_numpy().astype(float)
     if args.winsor:
         y_train = np.minimum(y_train, args.winsor)

@@ -39,6 +39,7 @@ CATEGORICAL = [
     "FLIGHT_TYPE_flt",
     "FLIGHT_RULE_mvt",
     "airport_plan",
+    "ref_level",
 ]
 
 NUMERIC = [
@@ -64,10 +65,15 @@ NUMERIC = [
     "arr_taxi_60min",
     "sched_demand_30min",
     "stand_runway_pair_n",
+    "ref_taxi_s",
 ]
 
 FEATURES = CATEGORICAL + NUMERIC
 TARGET = "TAXITIME_SEC_mvt"
+
+# Fitted on training rows by prc.reference and attached afterwards, so build()
+# cannot produce them and must not try to select them.
+REFERENCE = ["ref_taxi_s", "ref_level"]
 
 
 def _window_counts(times: np.ndarray, airports: np.ndarray, half_window_s: int) -> np.ndarray:
@@ -289,6 +295,9 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
     )
     frame = frame.join(pair, on=["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"], how="left")
 
-    keep = ["MVT_ID_mvt", *FEATURES] + ([TARGET] if with_target else [])
-    frame = frame.select(keep)
-    return frame.with_columns([pl.col(c).cast(pl.Utf8).fill_null("__NA__") for c in CATEGORICAL])
+    built = [f for f in FEATURES if f not in REFERENCE]
+    keep = ["MVT_ID_mvt", "ADEP_mvt", "STAND_mvt", "RUNWAY_mvt", *built]
+    keep += [TARGET] if with_target else []
+    frame = frame.select(list(dict.fromkeys(keep)))
+    cats = [c for c in CATEGORICAL if c not in REFERENCE]
+    return frame.with_columns([pl.col(c).cast(pl.Utf8).fill_null("__NA__") for c in cats])

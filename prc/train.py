@@ -112,6 +112,12 @@ def main() -> None:
           + (f", dropped {dropped}" if dropped else "")
           + (f", winsor at {args.winsor:,.0f}s" if args.winsor else ""))
 
+    from . import reference
+
+    splits["train"], splits["inner"], splits["holdout"] = reference.attach(
+        splits["train"], splits["inner"], splits["holdout"]
+    )
+
     def labels(name: str) -> np.ndarray:
         y = splits[name][TARGET].to_numpy().astype(float)
         # Never cap what we measure on.
