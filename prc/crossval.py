@@ -91,17 +91,22 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--winsor", type=float, default=0.0)
     parser.add_argument("--drop", default="")
+    parser.add_argument("--folds", default="", help="1-based fold indices, e.g. 1,3,5 (default all)")
     args = parser.parse_args()
 
     dropped = [c.strip() for c in args.drop.split(",") if c.strip()]
     feats = [f for f in FEATURES if f not in dropped]
     cat_idx = [feats.index(c) for c in CATEGORICAL if c not in dropped]
 
+    chosen = FOLDS
+    if args.folds:
+        chosen = [FOLDS[int(i) - 1] for i in args.folds.split(",")]
+
     frame = load_training_features()
     print(f"[{args.tag}] {len(feats)} features, {len(FOLDS)} folds, "
           f"{args.iterations} iterations" + (f", winsor {args.winsor:,.0f}s" if args.winsor else ""))
 
-    folds = [run_fold(frame, held, feats, cat_idx, args) for held in FOLDS]
+    folds = [run_fold(frame, held, feats, cat_idx, args) for held in chosen]
     scores = np.array([f["rmse"] for f in folds])
     bulk = np.array([f["rmse_bulk"] for f in folds])
     print(f"\n  mean RMSE {scores.mean():8.2f}  sd {scores.std(ddof=1):6.2f}  "
