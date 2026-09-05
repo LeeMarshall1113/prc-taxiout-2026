@@ -59,6 +59,10 @@ NUMERIC = [
     "arr_30min",
     "dep_60min",
     "arr_60min",
+    "dep_rwy_30min",
+    "dep_rwy_headway",
+    "arr_taxi_60min",
+    "sched_demand_30min",
     "stand_runway_pair_n",
 ]
 
@@ -87,6 +91,98 @@ def _window_counts(times: np.ndarray, airports: np.ndarray, half_window_s: int) 
         hi = np.searchsorted(t_sorted, t_sorted + half_window_s, side="right")
         counts = (hi - lo - 1).astype(np.int32)  # exclude self
         out[idx[t_order]] = counts
+    return out
+
+
+def _prev_gap(times: np.ndarray, keys: np.ndarray) -> np.ndarray:
+    """Seconds since the previous movement sharing the same key. -1 if first."""
+    out = np.full(len(times), -1.0)
+    order = np.lexsort((times, keys))
+    k, t = keys[order], times[order]
+    same = np.empty(len(order), dtype=bool)
+    same[0] = False
+    same[1:] = k[1:] == k[:-1]
+    gaps = np.empty(len(order))
+    gaps[0] = -1.0
+    gaps[1:] = np.where(same[1:], t[1:] - t[:-1], -1.0)
+    out[order] = gaps
+    return out
+
+
+def _trailing_mean(
+    query_times: np.ndarray,
+    query_keys: np.ndarray,
+    src_times: np.ndarray,
+    src_keys: np.ndarray,
+    src_values: np.ndarray,
+    window_s: int,
+) -> np.ndarray:
+    """Mean of src_values over the ``window_s`` seconds before each query time.
+
+    Strictly backward-looking, so it stays honest: only movements that had
+    already happened can inform a prediction. NaN where the window is empty.
+    """
+    out = np.full(len(query_times), np.nan)
+    for key in np.unique(query_keys):
+        q = np.flatnonzero(query_keys == key)
+        s = np.flatnonzero(src_keys == key)
+        if not len(q) or not len(s):
+            continue
+        order = np.argsort(src_times[s], kind="stable")
+        st, sv = src_times[s][order], src_values[s][order]
+        csum = np.concatenate([[0.0], np.cumsum(np.nan_to_num(sv))])
+        ccnt = np.concatenate([[0.0], np.cumsum(~np.isnan(sv))])
+        qt = query_times[q]
+        hi = np.searchsorted(st, qt, side="right")
+        lo = np.searchsorted(st, qt - window_s, side="left")
+        n = ccnt[hi] - ccnt[lo]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            out[q] = np.where(n > 0, (csum[hi] - csum[lo]) / np.maximum(n, 1), np.nan)
+    return out
+
+
+def _wave2(frame: pl.DataFrame) -> dict[str, np.ndarray]:
+    """Congestion the earlier features missed: runway-level, and ground state.
+
+    ``arr_taxi_60min`` is the mean taxi-in of arrivals that landed at this
+    airport in the previous hour. It is the closest thing available to a direct
+    reading of how congested the surface actually is right now, and it is honest
+    at prediction time: ranking.parquet blanks the departure taxi times but
+    leaves the whole arrival side intact.
+    """
+    epoch = frame["MVT_TIME_UTC_mvt"].dt.epoch("s").to_numpy().astype(np.int64)
+    phase = frame["PHASE_mvt"].to_numpy()
+    airport = np.where(phase == "DEP", frame["ADEP_mvt"].to_numpy(), frame["ADES_mvt"].to_numpy())
+    runway = frame["RUNWAY_mvt"].to_numpy().astype(str)
+    apt_rwy = np.char.add(np.char.add(airport.astype(str), "/"), runway)
+
+    dep = phase == "DEP"
+    arr = phase == "ARR"
+    taxi = frame["TAXITIME_SEC_mvt"].cast(pl.Float64).to_numpy()
+
+    out = {}
+    # Same-runway departure pressure, and headway to the previous departure.
+    rwy_counts = np.zeros(len(epoch), dtype=np.int32)
+    if dep.any():
+        rwy_counts[dep] = _window_counts(epoch[dep], apt_rwy[dep], 900)
+    out["dep_rwy_30min"] = rwy_counts
+
+    headway = np.full(len(epoch), -1.0)
+    if dep.any():
+        headway[dep] = _prev_gap(epoch[dep].astype(float), apt_rwy[dep])
+    out["dep_rwy_headway"] = headway
+
+    # Ground state, read off the arrivals that have already landed.
+    out["arr_taxi_60min"] = _trailing_mean(
+        epoch.astype(float), airport, epoch[arr].astype(float), airport[arr], taxi[arr], 3600
+    )
+
+    # Planned demand, from scheduled times rather than achieved ones.
+    sched = frame["SCHED_TIME_UTC_mvt"].dt.epoch("s").to_numpy().astype(np.int64)
+    sched_counts = np.zeros(len(epoch), dtype=np.int32)
+    if dep.any():
+        sched_counts[dep] = _window_counts(sched[dep], airport[dep], 900)
+    out["sched_demand_30min"] = sched_counts
     return out
 
 
@@ -137,6 +233,7 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
     are needed first to compute arrival pressure.
     """
     congestion = _congestion(frame)
+    congestion.update(_wave2(frame))
     frame = frame.with_columns(
         [pl.Series(name, values) for name, values in congestion.items()]
     )

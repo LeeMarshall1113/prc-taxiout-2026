@@ -36,3 +36,6 @@ Thumbs.db
 
 # catboost writes a log dir wherever it is run from
 catboost_info/
+
+# ablation working files
+.yield-requested
