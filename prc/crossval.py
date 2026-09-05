@@ -43,41 +43,56 @@ RESULTS = Path("results/crossval.jsonl")
 def run_fold(frame, held: tuple[int, int], feats, cat_idx, args) -> dict:
     from catboost import CatBoostRegressor, Pool
 
+    from . import reference
+
     month = pl.col("month")
     train = frame.filter(~month.is_in(held))
     test = frame.filter(month.is_in(held))
-
-    from . import reference
-
     train, test = reference.attach(train, test)
 
     y_train = train[TARGET].to_numpy().astype(float)
     if args.winsor:
         y_train = np.minimum(y_train, args.winsor)
 
-    model = CatBoostRegressor(
-        iterations=args.iterations, depth=args.depth, learning_rate=args.lr,
-        l2_leaf_reg=args.l2, loss_function="RMSE", thread_count=args.threads,
-        random_seed=1113, verbose=False,
-    )
-    started = time.time()
-    model.fit(Pool(train.select(feats).to_pandas(), y_train, cat_features=cat_idx))
-
+    train_pool = Pool(train.select(feats).to_pandas(), y_train, cat_features=cat_idx)
+    test_x = test.select(feats).to_pandas()
     y = test[TARGET].to_numpy().astype(float)
-    pred = model.predict(test.select(feats).to_pandas())
     plan = test["has_flight_plan"].to_numpy() == 1
+
+    started = time.time()
+    preds = []
+    for seed in range(args.seeds):
+        model = CatBoostRegressor(
+            iterations=args.iterations, depth=args.depth, learning_rate=args.lr,
+            l2_leaf_reg=args.l2, loss_function="RMSE", thread_count=args.threads,
+            random_seed=1113 + seed * 977, verbose=False,
+        )
+        model.fit(train_pool)
+        preds.append(model.predict(test_x))
+    stack = np.vstack(preds)
+    bagged = stack.mean(axis=0)
+
     out = {
-        "fold": list(held),
-        "n": int(len(y)),
-        "rmse": rmse(y, pred),
-        "rmse_bulk": rmse(y[plan], pred[plan]),
-        "rmse_noplan": rmse(y[~plan], pred[~plan]) if (~plan).any() else None,
+        "fold": list(held), "n": int(len(y)), "seeds": args.seeds,
+        "rmse": rmse(y, preds[0]),
+        "rmse_bagged": rmse(y, bagged),
+        "rmse_bulk": rmse(y[plan], bagged[plan]),
+        "rmse_noplan": rmse(y[~plan], bagged[~plan]) if (~plan).any() else None,
         "seconds": round(time.time() - started),
     }
+    gain = out["rmse"] - out["rmse_bagged"]
     print(
-        f"  fold {held}: RMSE {out['rmse']:8.2f}  bulk {out['rmse_bulk']:7.2f}  "
-        f"no-plan {out['rmse_noplan']:8.0f}  ({out['seconds']}s)"
+        f"  fold {held}: seed0 {out['rmse']:8.2f}  bagged({args.seeds}) {out['rmse_bagged']:8.2f}  "
+        f"gain {gain:+6.2f}  bulk {out['rmse_bulk']:7.2f}  ({out['seconds']}s)"
     )
+
+    if args.save_preds:
+        cols = {"y": y, "has_flight_plan": plan.astype(np.int8), "bagged": bagged}
+        cols.update({f"seed{i}": p for i, p in enumerate(preds)})
+        path = Path(f"results/preds_{args.tag}_{held[0]}_{held[1]}.parquet")
+        path.parent.mkdir(exist_ok=True)
+        pl.DataFrame(cols).write_parquet(path)
+        print(f"    saved {path}")
     return out
 
 
@@ -91,6 +106,8 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--winsor", type=float, default=0.0)
     parser.add_argument("--drop", default="")
+    parser.add_argument("--seeds", type=int, default=1, help="models per fold, averaged")
+    parser.add_argument("--save-preds", action="store_true")
     parser.add_argument("--folds", default="", help="1-based fold indices, e.g. 1,3,5 (default all)")
     args = parser.parse_args()
 
@@ -107,7 +124,7 @@ def main() -> None:
           f"{args.iterations} iterations" + (f", winsor {args.winsor:,.0f}s" if args.winsor else ""))
 
     folds = [run_fold(frame, held, feats, cat_idx, args) for held in chosen]
-    scores = np.array([f["rmse"] for f in folds])
+    scores = np.array([f["rmse_bagged"] for f in folds])
     bulk = np.array([f["rmse_bulk"] for f in folds])
     print(f"\n  mean RMSE {scores.mean():8.2f}  sd {scores.std(ddof=1):6.2f}  "
           f"range {scores.min():.1f}..{scores.max():.1f}")
