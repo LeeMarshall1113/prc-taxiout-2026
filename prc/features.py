@@ -94,6 +94,9 @@ def _window_counts(times: np.ndarray, airports: np.ndarray, half_window_s: int) 
     return out
 
 
+_MAX_HEADWAY_S = 6 * 3600
+
+
 def _prev_gap(times: np.ndarray, keys: np.ndarray) -> np.ndarray:
     """Seconds since the previous movement sharing the same key. -1 if first."""
     out = np.full(len(times), -1.0)
@@ -167,9 +170,17 @@ def _wave2(frame: pl.DataFrame) -> dict[str, np.ndarray]:
         rwy_counts[dep] = _window_counts(epoch[dep], apt_rwy[dep], 900)
     out["dep_rwy_30min"] = rwy_counts
 
-    headway = np.full(len(epoch), -1.0)
+    # Anything beyond a few hours is not a headway, it is "nothing recent", and
+    # the distinction matters at prediction time: the ranking file holds January
+    # and July in one frame, so the first July departure on a runway would
+    # otherwise measure back five months. 85 ranking rows exceeded seven days
+    # against 10 in a training month. NaN says "no recent departure" in a way
+    # that means the same thing in both frames.
+    headway = np.full(len(epoch), np.nan)
     if dep.any():
-        headway[dep] = _prev_gap(epoch[dep].astype(float), apt_rwy[dep])
+        gaps = _prev_gap(epoch[dep].astype(float), apt_rwy[dep])
+        gaps[(gaps < 0) | (gaps > _MAX_HEADWAY_S)] = np.nan
+        headway[dep] = gaps
     out["dep_rwy_headway"] = headway
 
     # Ground state, read off the arrivals that have already landed.
