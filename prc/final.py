@@ -59,6 +59,10 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=5)
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-iterations", type=int, default=600)
+    parser.add_argument("--noplan-depth", type=int, default=6)
+    parser.add_argument("--keep", default="",
+                        help="comma-separated features to restore to the drop list, "
+                             "e.g. the wave-2 columns if they win on folds")
     parser.add_argument("--transform", default="identity")
     parser.add_argument("--team", default=TEAM_NAME)
     parser.add_argument("--version", type=int)
@@ -68,7 +72,13 @@ def main() -> None:
     from catboost import CatBoostRegressor, Pool
 
     ensure_dirs()
-    feats = [f for f in FEATURES if f not in DROP]
+    keep = {c.strip() for c in args.keep.split(',') if c.strip()}
+    unknown = keep - set(DROP)
+    if unknown:
+        raise SystemExit(f'--keep names features that are not dropped: {sorted(unknown)}')
+    feats = [f for f in FEATURES if f not in DROP or f in keep]
+    if keep:
+        print(f'restored to the model: {sorted(keep)}')
     cat_idx = [feats.index(c) for c in CATEGORICAL if c not in DROP]
 
     train = load_training_features()
@@ -98,6 +108,7 @@ def main() -> None:
 
         class _A:  # fit_noplan reads its settings off an args-like object
             noplan_iterations = args.noplan_iterations
+            noplan_depth = args.noplan_depth
             threads = args.threads
 
         cat_names = [c for c in CATEGORICAL if c not in DROP]

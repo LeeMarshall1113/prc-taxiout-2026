@@ -64,7 +64,8 @@ def fit_noplan(train, feats, cat_features, args):
     nfeats = [f for f in feats if f not in NOPLAN_DROP]
     ncats = [nfeats.index(c) for c in cat_features if c in nfeats]
     model = CatBoostRegressor(
-        iterations=args.noplan_iterations, depth=6, learning_rate=0.05,
+        iterations=args.noplan_iterations, depth=getattr(args, 'noplan_depth', 6),
+        learning_rate=0.05,
         loss_function="RMSE", thread_count=args.threads, random_seed=1113, verbose=False,
     )
     model.fit(Pool(sub.select(nfeats).to_pandas(),
