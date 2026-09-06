@@ -40,6 +40,38 @@ FOLDS = [(1, 7), (2, 8), (3, 9), (4, 10), (5, 11), (6, 12)]
 RESULTS = Path("results/crossval.jsonl")
 
 
+# Features that actually exist for rows with no flight plan. Everything derived
+# from a _flt column is null there, so a global model is asking a specialist
+# question of a model whose inputs are 98.5% absent for this group.
+NOPLAN_DROP = [
+    "AIRCRAFT_OPERATOR_flt", "MARKET_SEGMENT_flt", "WK_TBL_CAT_flt", "FLIGHT_TYPE_flt",
+    "gap_aobt", "gap_eobt", "gap_lobt", "dep_delay", "sched_vs_eobt",
+    "has_flight_plan",  # constant within the group
+]
+
+
+def fit_noplan(train, feats, cat_features, args):
+    """A model trained only on no-flight-plan rows, on the columns they have.
+
+    This is not per-subgroup model *selection* -- the thing that cost a 2024 team
+    2,066 -> 2,276 by picking among per-aircraft-type models on validation score.
+    Nothing is selected here. The group is defined by which columns exist for it,
+    the split is fixed in advance, and both halves are scored together.
+    """
+    from catboost import CatBoostRegressor, Pool
+
+    sub = train.filter(pl.col("has_flight_plan") == 0)
+    nfeats = [f for f in feats if f not in NOPLAN_DROP]
+    ncats = [nfeats.index(c) for c in cat_features if c in nfeats]
+    model = CatBoostRegressor(
+        iterations=args.noplan_iterations, depth=6, learning_rate=0.05,
+        loss_function="RMSE", thread_count=args.threads, random_seed=1113, verbose=False,
+    )
+    model.fit(Pool(sub.select(nfeats).to_pandas(),
+                   sub[TARGET].to_numpy().astype(float), cat_features=ncats))
+    return model, nfeats
+
+
 def run_fold(frame, held: tuple[int, int], feats, cat_idx, args) -> dict:
     from catboost import CatBoostRegressor, Pool
 
@@ -71,6 +103,17 @@ def run_fold(frame, held: tuple[int, int], feats, cat_idx, args) -> dict:
         preds.append(model.predict(test_x))
     stack = np.vstack(preds)
     bagged = stack.mean(axis=0)
+
+    if args.noplan_model:
+        cat_names = [feats[i] for i in cat_idx]
+        nmodel, nfeats = fit_noplan(train, feats, cat_names, args)
+        npred = nmodel.predict(test.select(nfeats).to_pandas())
+        split = np.where(plan, bagged, npred)
+        print(f"    dedicated no-plan model: global {rmse(y[~plan], bagged[~plan]):8.1f} -> "
+              f"{rmse(y[~plan], npred[~plan]):8.1f} on {int((~plan).sum()):,} rows | "
+              f"overall {rmse(y, bagged):7.2f} -> {rmse(y, split):7.2f}")
+        bagged_global = bagged
+        bagged = split
 
     out = {
         "fold": list(held), "n": int(len(y)), "seeds": args.seeds,
@@ -106,6 +149,8 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--winsor", type=float, default=0.0)
     parser.add_argument("--drop", default="")
+    parser.add_argument("--noplan-model", action="store_true")
+    parser.add_argument("--noplan-iterations", type=int, default=600)
     parser.add_argument("--seeds", type=int, default=1, help="models per fold, averaged")
     parser.add_argument("--save-preds", action="store_true")
     parser.add_argument("--folds", default="", help="1-based fold indices, e.g. 1,3,5 (default all)")
