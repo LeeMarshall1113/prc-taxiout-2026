@@ -57,6 +57,8 @@ def main() -> None:
     parser.add_argument("--depth", type=int, default=8)
     parser.add_argument("--lr", type=float, default=0.08)
     parser.add_argument("--threads", type=int, default=5)
+    parser.add_argument("--noplan-model", action="store_true")
+    parser.add_argument("--noplan-iterations", type=int, default=600)
     parser.add_argument("--transform", default="identity")
     parser.add_argument("--team", default=TEAM_NAME)
     parser.add_argument("--version", type=int)
@@ -90,6 +92,23 @@ def main() -> None:
         print(f"  seed {seed} done")
 
     bagged = np.vstack(preds).mean(axis=0)
+
+    if args.noplan_model:
+        from .crossval import NOPLAN_DROP, fit_noplan
+
+        class _A:  # fit_noplan reads its settings off an args-like object
+            noplan_iterations = args.noplan_iterations
+            threads = args.threads
+
+        cat_names = [c for c in CATEGORICAL if c not in DROP]
+        nmodel, nfeats = fit_noplan(train, feats, cat_names, _A)
+        npred = nmodel.predict(rank.select(nfeats).to_pandas())
+        route = rank["has_flight_plan"].to_numpy() == 0
+        print(f"  dedicated no-plan model: {len(nfeats)} features, routing {int(route.sum()):,} rows")
+        print(f"    global mean on those rows {bagged[route].mean():8.1f}s -> "
+              f"dedicated {npred[route].mean():8.1f}s")
+        bagged = np.where(route, npred, bagged)
+
     transform = resolve_transform(args.transform)
     shaped = transform(bagged)
     changed = int((np.abs(shaped - bagged) > 1e-6).sum())
