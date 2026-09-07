@@ -50,6 +50,40 @@ NOPLAN_DROP = [
 ]
 
 
+def _fit_predict(train_frame, test_x, feats, cat_idx, y_train, args, seed):
+    """Fit on the chosen target scale and return predictions on the SECONDS scale.
+
+    ``--target log`` fits log1p(seconds). A right-skewed duration is the textbook
+    case for it: on the log scale the bulk stops being distorted by a handful of
+    multi-hour rows, and unlike winsorising the model can still emit large values,
+    because the back-transform is exponential rather than clipped.
+
+    The back-transform uses Duan's smearing estimator. exp(E[log y]) is the
+    conditional *median*, not the mean, and RMSE wants the mean -- so naively
+    exponentiating biases every prediction low. Smearing corrects it
+    non-parametrically by the mean of exp(training residuals), which needs no
+    assumption that those residuals are normal. Getting this wrong is the usual
+    reason a log-target model scores worse than it should.
+    """
+    from catboost import CatBoostRegressor, Pool
+
+    fit_y = np.log1p(np.maximum(y_train, 0.0)) if args.target == "log" else y_train
+    model = CatBoostRegressor(
+        iterations=args.iterations, depth=args.depth, learning_rate=args.lr,
+        l2_leaf_reg=args.l2, loss_function="RMSE", thread_count=args.threads,
+        random_seed=1113 + seed * 977, verbose=False,
+    )
+    train_x = train_frame.select(feats).to_pandas()
+    model.fit(Pool(train_x, fit_y, cat_features=cat_idx))
+
+    if args.target != "log":
+        return model.predict(test_x)
+
+    resid = fit_y - model.predict(train_x)
+    smearing = float(np.mean(np.exp(resid)))
+    return np.expm1(model.predict(test_x)) * smearing
+
+
 def fit_noplan(train, feats, cat_features, args):
     """A model for rows with no flight plan, on the columns they actually have.
 
@@ -119,15 +153,8 @@ def run_fold(frame, held: tuple[int, int], feats, cat_idx, args) -> dict:
     plan = test["has_flight_plan"].to_numpy() == 1
 
     started = time.time()
-    preds = []
-    for seed in range(args.seeds):
-        model = CatBoostRegressor(
-            iterations=args.iterations, depth=args.depth, learning_rate=args.lr,
-            l2_leaf_reg=args.l2, loss_function="RMSE", thread_count=args.threads,
-            random_seed=1113 + seed * 977, verbose=False,
-        )
-        model.fit(train_pool)
-        preds.append(model.predict(test_x))
+    preds = [_fit_predict(train, test_x, feats, cat_idx, y_train, args, s)
+             for s in range(args.seeds)]
     stack = np.vstack(preds)
     bagged = stack.mean(axis=0)
 
@@ -176,6 +203,7 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--winsor", type=float, default=0.0)
     parser.add_argument("--drop", default="")
+    parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-train", choices=["group", "all", "weighted"], default="group")
     parser.add_argument("--noplan-weight", type=float, default=20.0)
