@@ -63,6 +63,7 @@ def main() -> None:
     parser.add_argument("--depth", type=int, default=8)
     parser.add_argument("--lr", type=float, default=0.08)
     parser.add_argument("--threads", type=int, default=5)
+    parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-iterations", type=int, default=600)
     parser.add_argument("--noplan-depth", type=int, default=6)
@@ -89,23 +90,31 @@ def main() -> None:
 
     train = load_training_features()
     print(f"training on ALL {train.height:,} rows of 2025 ({len(feats)} features, {args.seeds} seeds)")
-    pool = Pool(train.select(feats).to_pandas(), train[TARGET].to_numpy().astype(float),
-                cat_features=cat_idx)
 
     rank = build(pl.read_parquet(RAW_DIR / "ranking.parquet"), with_target=False)
     rank_x = rank.select(feats).to_pandas()
     print(f"scoring {rank.height:,} ranking rows")
 
     preds = []
+    y_train = train[TARGET].to_numpy().astype(float)
+    fit_y = np.log1p(np.maximum(y_train, 0.0)) if args.target == "log" else y_train
+    train_x = train.select(feats).to_pandas()
     for seed in range(args.seeds):
         model = CatBoostRegressor(
             iterations=args.iterations, depth=args.depth, learning_rate=args.lr,
             loss_function="RMSE", thread_count=args.threads,
             random_seed=1113 + seed * 977, verbose=250,
         )
-        model.fit(pool)
-        preds.append(model.predict(rank_x))
-        print(f"  seed {seed} done")
+        model.fit(Pool(train_x, fit_y, cat_features=cat_idx))
+        if args.target == "log":
+            # Duan smearing: exp of a log-scale prediction is the conditional
+            # median, and RMSE wants the mean. See prc.crossval._fit_predict.
+            smear = float(np.mean(np.exp(fit_y - model.predict(train_x))))
+            preds.append(np.expm1(model.predict(rank_x)) * smear)
+            print(f"  seed {seed} done (log target, smearing {smear:.4f})")
+        else:
+            preds.append(model.predict(rank_x))
+            print(f"  seed {seed} done")
 
     bagged = np.vstack(preds).mean(axis=0)
 
