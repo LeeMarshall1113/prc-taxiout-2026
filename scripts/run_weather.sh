@@ -5,6 +5,10 @@ REPO="C:/Users/hackathon/Documents/GitHub/prc-taxiout-2026"
 BROKER="C:/Users/hackathon/.compute-broker/broker.py"
 LEASE="${1:?usage: run_weather.sh <lease-id>}"
 python "$BROKER" wait "$LEASE" --timeout 36000 || { echo "[wait] not granted"; exit 1; }
+# A yield flag left by a PREVIOUS run must not silently cancel this one.
+# It is a latch with no reset: written when a lease expires, never cleared,
+# so every later run acquired its lease and quit without doing anything.
+rm -f "$REPO/.yield-requested"
 python "$BROKER" heartbeat "$LEASE" >/dev/null 2>&1
 ( while true; do sleep 300; python "$BROKER" heartbeat "$LEASE" >/dev/null 2>&1 || \
     { echo "[heartbeat] yield requested" >&2; touch "$REPO/.yield-requested"; }; done ) &
