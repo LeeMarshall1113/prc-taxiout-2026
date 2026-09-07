@@ -40,10 +40,18 @@ WEATHER_DIR = RAW_DIR / "weather"
 
 # Derived columns, in the order the model sees them.
 FEATURES = [
-    "wx_temp_c", "wx_dewpoint_c", "wx_wind_kt", "wx_gust_kt", "wx_precip_mm",
-    "wx_visibility_km", "wx_ceiling_ft", "wx_deice_risk", "wx_thunder",
-    "wx_snow", "wx_freezing", "wx_lowvis", "wx_age_min",
+    "wx_temp_c", "wx_dewpoint_c", "wx_wind_kt", "wx_gust_kt",
+    "wx_visibility_km", "wx_ceiling_ft", "wx_precip", "wx_heavy_precip",
+    "wx_deice_risk", "wx_thunder", "wx_snow", "wx_freezing", "wx_lowvis",
+    "wx_age_min",
 ]
+
+# European METARs do not report p01i -- that is a US ASOS field, and it came
+# back identically zero for all ten stations, which would have made the
+# de-icing flag silently dead. Precipitation is read from the present-weather
+# codes instead: RA/DZ/SN/GR/GS/PL/SG/IC/UP, optionally prefixed -/+ for light
+# and heavy and SH for showers.
+PRECIP_CODES = r"(RA|DZ|SN|GR|GS|PL|SG|IC|UP)"
 
 
 def fetch(station: str, start: str = "2025-01-01", end: str = "2026-08-01") -> Path:
@@ -92,7 +100,8 @@ def load() -> pl.DataFrame:
             ((num("dwpf") - 32) * 5 / 9).alias("wx_dewpoint_c"),
             num("sknt").alias("wx_wind_kt"),
             num("gust").fill_null(0.0).alias("wx_gust_kt"),
-            (num("p01i") * 25.4).alias("wx_precip_mm"),
+            codes.str.contains(PRECIP_CODES).cast(pl.Int8).alias("wx_precip"),
+            codes.str.contains(r"\+").cast(pl.Int8).alias("wx_heavy_precip"),
             (num("vsby") * 1.609).alias("wx_visibility_km"),
             pl.when(pl.col("skyc1").is_in(["BKN", "OVC", "VV "]))
               .then(num("skyl1")).otherwise(pl.lit(30000.0)).alias("wx_ceiling_ft"),
@@ -105,7 +114,7 @@ def load() -> pl.DataFrame:
             # De-icing is ordered when it is cold AND something is falling; either
             # alone is routine. This is the mechanism that plausibly explains a
             # multi-hour January taxi-out.
-            ((pl.col("wx_temp_c") <= 3.0) & (pl.col("wx_precip_mm").fill_null(0.0) > 0.0))
+            ((pl.col("wx_temp_c") <= 3.0) & (pl.col("wx_precip") == 1))
             .cast(pl.Int8).alias("wx_deice_risk"),
             (pl.col("wx_visibility_km") < 1.5).cast(pl.Int8).alias("wx_lowvis"),
         )
@@ -135,9 +144,9 @@ def attach(movements: pl.DataFrame, weather: pl.DataFrame | None = None) -> pl.D
             ((pl.col("MVT_TIME_UTC_mvt") - pl.col("wx_time")).dt.total_seconds() / 60)
             .alias("wx_age_min")
         )
-        .drop("wx_time", "wx_station")
     )
-    return out
+    # join_asof consumes its right-hand key columns, so drop only what survived.
+    return out.drop([c for c in ("wx_time", "wx_station") if c in out.columns])
 
 
 def main() -> None:

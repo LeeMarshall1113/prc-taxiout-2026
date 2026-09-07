@@ -66,6 +66,7 @@ NUMERIC = [
     "sched_demand_30min",
     "stand_runway_pair_n",
     "ref_taxi_s",
+    *__import__("prc.weather", fromlist=["FEATURES"]).FEATURES,
 ]
 
 FEATURES = CATEGORICAL + NUMERIC
@@ -271,6 +272,10 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
         (pl.col("AOBT_3_flt") - pl.col("EOBT_1_flt")).dt.total_seconds().alias("dep_delay"),
         (pl.col("SCHED_TIME_UTC_mvt") - pl.col("EOBT_1_flt")).dt.total_seconds().alias("sched_vs_eobt"),
     )
+
+    from . import weather
+
+    frame = weather.attach(frame)
 
     # Per-airport crossing of the flight-plan flag. See the module docstring:
     # a missing flight plan is only dangerous at some airports, so the model
