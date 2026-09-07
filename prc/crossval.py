@@ -51,25 +51,51 @@ NOPLAN_DROP = [
 
 
 def fit_noplan(train, feats, cat_features, args):
-    """A model trained only on no-flight-plan rows, on the columns they have.
+    """A model for rows with no flight plan, on the columns they actually have.
 
-    This is not per-subgroup model *selection* -- the thing that cost a 2024 team
-    2,066 -> 2,276 by picking among per-aircraft-type models on validation score.
-    Nothing is selected here. The group is defined by which columns exist for it,
-    the split is fixed in advance, and both halves are scored together.
+    ``args.noplan_train`` picks what it learns from:
+
+    ``group``   only the ~22k no-flight-plan rows. What v5 shipped.
+    ``all``     every departure, with the flight-plan-derived columns removed.
+                The feature vector is identical either way -- stand, runway,
+                time, congestion, weather all exist for all 2.08M rows -- so
+                restricting to 22k throws away two orders of magnitude of data
+                about how those features map to taxi time, for no reason beyond
+                how the split was first written.
+    ``weighted`` same as ``all`` but with no-flight-plan rows upweighted, so the
+                extra data informs the shape without drowning the population we
+                actually predict.
+
+    This is not per-subgroup model *selection* -- the thing that cost a 2024
+    team 2,066 -> 2,276. Nothing is chosen by score; the group is defined by
+    which columns exist, fixed before measurement, and both halves scored
+    together on folds not used for training.
     """
     from catboost import CatBoostRegressor, Pool
 
-    sub = train.filter(pl.col("has_flight_plan") == 0)
+    mode = getattr(args, "noplan_train", "group")
     nfeats = [f for f in feats if f not in NOPLAN_DROP]
     ncats = [nfeats.index(c) for c in cat_features if c in nfeats]
+
+    if mode == "group":
+        sub = train.filter(pl.col("has_flight_plan") == 0)
+        weights = None
+    else:
+        sub = train
+        if mode == "weighted":
+            w = getattr(args, "noplan_weight", 20.0)
+            weights = np.where(sub["has_flight_plan"].to_numpy() == 0, w, 1.0)
+        else:
+            weights = None
+
+    pool = Pool(sub.select(nfeats).to_pandas(), sub[TARGET].to_numpy().astype(float),
+                cat_features=ncats, weight=weights)
     model = CatBoostRegressor(
-        iterations=args.noplan_iterations, depth=getattr(args, 'noplan_depth', 6),
-        learning_rate=0.05,
-        loss_function="RMSE", thread_count=args.threads, random_seed=1113, verbose=False,
+        iterations=args.noplan_iterations, depth=getattr(args, "noplan_depth", 6),
+        learning_rate=0.05, loss_function="RMSE",
+        thread_count=args.threads, random_seed=1113, verbose=False,
     )
-    model.fit(Pool(sub.select(nfeats).to_pandas(),
-                   sub[TARGET].to_numpy().astype(float), cat_features=ncats))
+    model.fit(pool)
     return model, nfeats
 
 
@@ -151,6 +177,8 @@ def main() -> None:
     parser.add_argument("--winsor", type=float, default=0.0)
     parser.add_argument("--drop", default="")
     parser.add_argument("--noplan-model", action="store_true")
+    parser.add_argument("--noplan-train", choices=["group", "all", "weighted"], default="group")
+    parser.add_argument("--noplan-weight", type=float, default=20.0)
     parser.add_argument("--noplan-iterations", type=int, default=600)
     parser.add_argument("--seeds", type=int, default=1, help="models per fold, averaged")
     parser.add_argument("--save-preds", action="store_true")
