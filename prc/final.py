@@ -30,11 +30,17 @@ from .features import CATEGORICAL, FEATURES, TARGET, build
 from .submit import ID_COL, TARGET_COL, build as build_submission
 from .train import load_training_features
 
-# Everything rejected on the folds, dropped. See notes/.
+# Dropped by default: everything rejected on the folds, plus anything not yet
+# validated. The default configuration is exactly what is currently shipped, and
+# additions are opt-in via --keep. A feature that has not won 3/3 folds must not
+# reach a submission because it happened to exist in the feature list.
+from .weather import FEATURES as _WEATHER
+
 DROP = [
     "airport_plan",
     "dep_rwy_30min", "dep_rwy_headway", "arr_taxi_60min", "sched_demand_30min",
     "ref_taxi_s", "ref_level",
+    *_WEATHER,
 ]
 
 
