@@ -39,3 +39,6 @@ catboost_info/
 
 # ablation working files
 .yield-requested
+
+# external weather archive, refetchable via `python -m prc.weather fetch`
+data/raw/weather/
