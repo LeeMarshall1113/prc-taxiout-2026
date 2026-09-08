@@ -63,6 +63,7 @@ def main() -> None:
     parser.add_argument("--depth", type=int, default=8)
     parser.add_argument("--lr", type=float, default=0.08)
     parser.add_argument("--threads", type=int, default=5)
+    parser.add_argument("--residual", action="store_true")
     parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-iterations", type=int, default=600)
@@ -97,7 +98,19 @@ def main() -> None:
 
     preds = []
     y_train = train[TARGET].to_numpy().astype(float)
-    fit_y = np.log1p(np.maximum(y_train, 0.0)) if args.target == "log" else y_train
+    # Model the correction to Network Manager's own off-block gap rather than
+    # the target. Won 3/3 folds at -6.44s, and -16.22s on the Jan+Jul fold that
+    # matches the ranking months. Zero where no flight plan exists, so those
+    # rows reduce to the plain target and are routed to the dedicated model.
+    from .crossval import _baseline
+
+    base_train = _baseline(train) if args.residual else 0.0
+    base_rank = _baseline(rank) if args.residual else 0.0
+    if args.residual:
+        print(f"  residual mode: NM baseline mean {np.mean(base_rank):.1f}s on the ranking set")
+    fit_y = y_train - base_train
+    if args.target == "log":
+        fit_y = np.log1p(np.maximum(fit_y, 0.0))
     train_x = train.select(feats).to_pandas()
     for seed in range(args.seeds):
         model = CatBoostRegressor(
@@ -110,10 +123,10 @@ def main() -> None:
             # Duan smearing: exp of a log-scale prediction is the conditional
             # median, and RMSE wants the mean. See prc.crossval._fit_predict.
             smear = float(np.mean(np.exp(fit_y - model.predict(train_x))))
-            preds.append(np.expm1(model.predict(rank_x)) * smear)
+            preds.append(np.expm1(model.predict(rank_x)) * smear + base_rank)
             print(f"  seed {seed} done (log target, smearing {smear:.4f})")
         else:
-            preds.append(model.predict(rank_x))
+            preds.append(model.predict(rank_x) + base_rank)
             print(f"  seed {seed} done")
 
     bagged = np.vstack(preds).mean(axis=0)
