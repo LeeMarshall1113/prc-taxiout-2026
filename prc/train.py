@@ -33,7 +33,7 @@ import numpy as np
 import polars as pl
 
 from .config import INTERIM_DIR, RAW_DIR, ensure_dirs
-from .features import CATEGORICAL, FEATURES, TARGET, build
+from .features import CATEGORICAL, FEATURES, REFERENCE, TARGET, build
 from .validate import rmse, trimmed_rmse
 
 TRAIN_MONTHS = (2, 3, 4, 5, 6, 8, 9, 10, 12)
@@ -43,10 +43,22 @@ RESULTS = Path("results/ablation.jsonl")
 
 
 def load_training_features(cache: bool = True) -> pl.DataFrame:
-    """Build features month by month, so peak memory is one month not twelve."""
+    """Build features month by month, so peak memory is one month not twelve.
+
+    The cache is invalidated automatically when features.py gains a column.
+    Three separate runs have now been lost to a cache written before a feature
+    existed: the failure surfaces deep inside CatBoost as a missing-column
+    error, long after the lease was acquired, and looks nothing like its cause.
+    """
     cached = INTERIM_DIR / "train_features.parquet"
     if cache and cached.exists():
-        return pl.read_parquet(cached)
+        have = set(pl.scan_parquet(cached).collect_schema().names())
+        want = {f for f in FEATURES if f not in REFERENCE}
+        missing = want - have
+        if missing:
+            print(f"cache is stale, missing {sorted(missing)} — rebuilding")
+        else:
+            return pl.read_parquet(cached)
     ensure_dirs()
     parts = []
     for path in sorted(RAW_DIR.glob("training_*.parquet")):
