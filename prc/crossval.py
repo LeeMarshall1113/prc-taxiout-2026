@@ -122,15 +122,34 @@ def fit_noplan(train, feats, cat_features, args):
         else:
             weights = None
 
-    pool = Pool(sub.select(nfeats).to_pandas(), sub[TARGET].to_numpy().astype(float),
-                cat_features=ncats, weight=weights)
+    y = sub[TARGET].to_numpy().astype(float)
+    # The global --target flag never reached this model, so a log scale was
+    # rejected for the bulk while going untested where it is most motivated:
+    # this group's wild half has a standard deviation of 11,166s.
+    log_scale = getattr(args, "noplan_target", "raw") == "log"
+    fit_y = np.log1p(np.maximum(y, 0.0)) if log_scale else y
+
+    x = sub.select(nfeats).to_pandas()
     model = CatBoostRegressor(
         iterations=args.noplan_iterations, depth=getattr(args, "noplan_depth", 6),
         learning_rate=0.05, loss_function="RMSE",
         thread_count=args.threads, random_seed=1113, verbose=False,
     )
-    model.fit(pool)
-    return model, nfeats
+    model.fit(Pool(x, fit_y, cat_features=ncats, weight=weights))
+    if not log_scale:
+        return model, nfeats
+
+    smear = float(np.mean(np.exp(fit_y - model.predict(x))))
+    raw_predict = model.predict
+
+    class _Smeared:  # same interface, seconds scale out
+        feature_names_ = getattr(model, "feature_names_", None)
+
+        @staticmethod
+        def predict(frame):
+            return np.expm1(raw_predict(frame)) * smear
+
+    return _Smeared, nfeats
 
 
 def run_fold(frame, held: tuple[int, int], feats, cat_idx, args) -> dict:
@@ -205,6 +224,7 @@ def main() -> None:
     parser.add_argument("--drop", default="")
     parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
+    parser.add_argument("--noplan-target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-train", choices=["group", "all", "weighted"], default="group")
     parser.add_argument("--noplan-weight", type=float, default=20.0)
     parser.add_argument("--noplan-iterations", type=int, default=600)
