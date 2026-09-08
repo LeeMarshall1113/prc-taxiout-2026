@@ -104,6 +104,52 @@ def _catboost_kwargs(args) -> dict:
     return kwargs
 
 
+BASELINE_COLS = ["gap_aobt", "gap_eobt", "gap_lobt", "gap_sched"]
+
+
+def _baseline_matrix(frame: pl.DataFrame) -> np.ndarray:
+    cols = [np.nan_to_num(frame[c].to_numpy().astype(float), nan=0.0,
+                          posinf=0.0, neginf=0.0) for c in BASELINE_COLS]
+    cols.append(np.ones(frame.height))
+    return np.column_stack(cols)
+
+
+def fit_baseline(train: pl.DataFrame, mode: str):
+    """Return a callable giving the baseline to residualise against.
+
+    ``aobt``  the raw Network Manager off-block gap. What v7 ships. Alone it
+              scores 384.9s against 546s for a constant, and residualising
+              against it moved fold (1,7)'s bulk from 272.4 to 240.2.
+    ``blend`` a least-squares combination of all four timestamp gaps, fitted on
+              training rows only. gap_eobt and gap_lobt score 676.7s and 740.1s
+              alone -- worse than gap_aobt but not redundant with it, since each
+              is a different revision of the same estimate. If a better level
+              buys what a good level bought, this is where the next gain is.
+
+    Fitted on training rows and applied outward, like prc.reference: the
+    coefficients see no row they are later used to predict.
+    """
+    if mode != "blend":
+        return lambda f: np.nan_to_num(f["gap_aobt"].to_numpy().astype(float),
+                                       nan=0.0, posinf=0.0, neginf=0.0)
+
+    x = _baseline_matrix(train)
+    y = train[TARGET].to_numpy().astype(float)
+    # Fit on flight-plan rows only: elsewhere every gap is zero and the rows are
+    # routed to the dedicated model anyway, so they would only drag the fit.
+    keep = train["has_flight_plan"].to_numpy() == 1
+    coef, *_ = np.linalg.lstsq(x[keep], y[keep], rcond=None)
+    print("    baseline blend: " + "  ".join(
+        f"{n}={c:+.3f}" for n, c in zip(BASELINE_COLS + ["const"], coef)))
+
+    def apply(frame: pl.DataFrame) -> np.ndarray:
+        out = _baseline_matrix(frame) @ coef
+        # no flight plan -> no baseline; those rows go to the dedicated model
+        return np.where(frame["has_flight_plan"].to_numpy() == 1, out, 0.0)
+
+    return apply
+
+
 def _baseline(frame: pl.DataFrame) -> np.ndarray:
     """Network Manager's own off-block-to-wheels-up gap, as a physical baseline.
 
@@ -144,7 +190,11 @@ def _fit_predict(train_frame, test_frame, test_x, feats, cat_idx, y_train, args,
     """
     from catboost import CatBoostRegressor, Pool
 
-    base_train = _baseline(train_frame) if getattr(args, "residual", False) else 0.0
+    if getattr(args, "residual", False):
+        make_base = fit_baseline(train_frame, getattr(args, "baseline", "aobt"))
+        base_train, base_test_v = make_base(train_frame), make_base(test_frame)
+    else:
+        base_train = base_test_v = 0.0
     fit_y = y_train - base_train
     if args.target == "log":
         fit_y = np.log1p(np.maximum(fit_y, 0.0))
@@ -154,7 +204,7 @@ def _fit_predict(train_frame, test_frame, test_x, feats, cat_idx, y_train, args,
     train_x = train_frame.select(feats).to_pandas()
     model.fit(Pool(train_x, fit_y, cat_features=cat_idx))
 
-    base_test = _baseline(test_frame) if getattr(args, "residual", False) else 0.0
+    base_test = base_test_v
     if args.target != "log":
         return model.predict(test_x) + base_test
 
@@ -366,6 +416,7 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--winsor", type=float, default=0.0)
     parser.add_argument("--drop", default="")
+    parser.add_argument("--baseline", choices=["aobt", "blend"], default="aobt")
     parser.add_argument("--residual", action="store_true",
                         help="model the correction to the NM baseline, not the target")
     parser.add_argument("--loss", default="RMSE", help='e.g. "Huber:delta=2000"')
