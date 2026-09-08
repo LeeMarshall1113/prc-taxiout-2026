@@ -104,7 +104,30 @@ def _catboost_kwargs(args) -> dict:
     return kwargs
 
 
-def _fit_predict(train_frame, test_x, feats, cat_idx, y_train, args, seed):
+def _baseline(frame: pl.DataFrame) -> np.ndarray:
+    """Network Manager's own off-block-to-wheels-up gap, as a physical baseline.
+
+    A team currently around 291 on the board models the RESIDUAL from this
+    rather than the target directly. The idea is that `MVT_TIME - AOBT_3_flt` is
+    already a measurement of roughly the right quantity from an independent
+    source -- it scores 384.9s used alone, worse than our model but far better
+    than the 546s a constant gives -- so asking the trees to learn only the
+    correction should be easier than asking them to reconstruct the level and
+    the correction together.
+
+    It is emphatically not a label leak: correlation with the target is 0.536,
+    it matches exactly on 0.65% of rows and within a minute on 21%. Verified
+    directly rather than taken on trust, because a claim that it reconstructs
+    the label was circulating and is wrong.
+
+    Zero where the flight plan is absent, so the residual reduces to the target
+    for those rows -- they are routed to the dedicated model regardless.
+    """
+    gap = frame["gap_aobt"].to_numpy().astype(float)
+    return np.nan_to_num(gap, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _fit_predict(train_frame, test_frame, test_x, feats, cat_idx, y_train, args, seed):
     """Fit on the chosen target scale and return predictions on the SECONDS scale.
 
     ``--target log`` fits log1p(seconds). A right-skewed duration is the textbook
@@ -121,19 +144,76 @@ def _fit_predict(train_frame, test_x, feats, cat_idx, y_train, args, seed):
     """
     from catboost import CatBoostRegressor, Pool
 
-    fit_y = np.log1p(np.maximum(y_train, 0.0)) if args.target == "log" else y_train
+    base_train = _baseline(train_frame) if getattr(args, "residual", False) else 0.0
+    fit_y = y_train - base_train
+    if args.target == "log":
+        fit_y = np.log1p(np.maximum(fit_y, 0.0))
     kwargs = _catboost_kwargs(args)
     kwargs["random_seed"] = 1113 + seed * 977
     model = CatBoostRegressor(**kwargs)
     train_x = train_frame.select(feats).to_pandas()
     model.fit(Pool(train_x, fit_y, cat_features=cat_idx))
 
+    base_test = _baseline(test_frame) if getattr(args, "residual", False) else 0.0
     if args.target != "log":
-        return model.predict(test_x)
+        return model.predict(test_x) + base_test
 
-    resid = fit_y - model.predict(train_x)
-    smearing = float(np.mean(np.exp(resid)))
-    return np.expm1(model.predict(test_x)) * smearing
+    smearing = float(np.mean(np.exp(fit_y - model.predict(train_x))))
+    return np.expm1(model.predict(test_x)) * smearing + base_test
+
+
+def _fit_one_noplan(sub, nfeats, ncats, args, weights=None):
+    from catboost import CatBoostRegressor, Pool
+
+    y = sub[TARGET].to_numpy().astype(float)
+    log_scale = getattr(args, "noplan_target", "raw") == "log"
+    fit_y = np.log1p(np.maximum(y, 0.0)) if log_scale else y
+    x = sub.select(nfeats).to_pandas()
+    model = CatBoostRegressor(
+        iterations=args.noplan_iterations, depth=getattr(args, "noplan_depth", 6),
+        learning_rate=0.05, loss_function="RMSE",
+        thread_count=args.threads, random_seed=1113, verbose=False,
+    )
+    model.fit(Pool(x, fit_y, cat_features=ncats, weight=weights))
+    if not log_scale:
+        return model
+    smear = float(np.mean(np.exp(fit_y - model.predict(x))))
+    raw = model.predict
+
+    class _Smeared:
+        @staticmethod
+        def predict(frame):
+            return np.expm1(raw(frame)) * smear
+
+    return _Smeared
+
+
+class _RoutedNoPlan:
+    """Two no-plan models, routed on whether the airport is LIRF.
+
+    Inside the no-flight-plan group the two halves are barely the same problem:
+    at LIRF the mean is 6,531s and essentially every row also lacks an aircraft
+    type, while everywhere else the mean is 1,019s against a global 991s -- an
+    ordinary departure that happens to be missing its flight plan.
+
+    An earlier test showed a per-half CONSTANT loses badly to the single model
+    (3,722 against 2,154), which is why this was left alone. But that measured
+    whether a constant beats a model, not whether two models beat one, and those
+    are different questions. Routing is on an airport code fixed in advance, not
+    chosen by score, so it is not the per-subgroup selection that cost a 2024
+    team 2,066 -> 2,276.
+    """
+
+    def __init__(self, lirf, other, nfeats):
+        self._lirf, self._other, self._nfeats = lirf, other, nfeats
+
+    def predict(self, frame):
+        # frame is a pandas DataFrame carrying ADEP_mvt among nfeats
+        is_lirf = (frame["ADEP_mvt"] == "LIRF").to_numpy()
+        out = self._other.predict(frame)
+        if is_lirf.any() and self._lirf is not None:
+            out = np.where(is_lirf, self._lirf.predict(frame), out)
+        return out
 
 
 def fit_noplan(train, feats, cat_features, args):
@@ -187,6 +267,14 @@ def fit_noplan(train, feats, cat_features, args):
         learning_rate=0.05, loss_function="RMSE",
         thread_count=args.threads, random_seed=1113, verbose=False,
     )
+    if getattr(args, "noplan_split_lirf", False):
+        lirf_rows = sub.filter(pl.col("ADEP_mvt") == "LIRF")
+        other_rows = sub.filter(pl.col("ADEP_mvt") != "LIRF")
+        lirf = _fit_one_noplan(lirf_rows, nfeats, ncats, args) if lirf_rows.height > 200 else None
+        other = _fit_one_noplan(other_rows, nfeats, ncats, args)
+        print(f"    no-plan routed: LIRF {lirf_rows.height:,} rows, other {other_rows.height:,}")
+        return _RoutedNoPlan(lirf, other, nfeats), nfeats
+
     model.fit(Pool(x, fit_y, cat_features=ncats, weight=weights))
     if not log_scale:
         return model, nfeats
@@ -228,7 +316,7 @@ def run_fold(frame, held: tuple[int, int], feats, cat_idx, args) -> dict:
     plan = test["has_flight_plan"].to_numpy() == 1
 
     started = time.time()
-    preds = [_fit_predict(train, test_x, feats, cat_idx, y_train, args, s)
+    preds = [_fit_predict(train, test, test_x, feats, cat_idx, y_train, args, s)
              for s in range(args.seeds)]
     stack = np.vstack(preds)
     bagged = stack.mean(axis=0)
@@ -278,11 +366,14 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--winsor", type=float, default=0.0)
     parser.add_argument("--drop", default="")
+    parser.add_argument("--residual", action="store_true",
+                        help="model the correction to the NM baseline, not the target")
     parser.add_argument("--loss", default="RMSE", help='e.g. "Huber:delta=2000"')
     parser.add_argument("--one-hot-max-size", type=int, default=0)
     parser.add_argument("--drop-dayoffset", action="store_true")
     parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
+    parser.add_argument("--noplan-split-lirf", action="store_true")
     parser.add_argument("--noplan-target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-train", choices=["group", "all", "weighted"], default="group")
     parser.add_argument("--noplan-weight", type=float, default=20.0)
