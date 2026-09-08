@@ -64,6 +64,10 @@ NUMERIC = [
     "dep_rwy_headway",
     "arr_taxi_60min",
     "sched_demand_30min",
+    "rwy_dep_active",
+    "rwy_dep_share",
+    "rwy_arr_active",
+    "rwy_mixed_mode",
     "stand_runway_pair_n",
     "ref_taxi_s",
     *__import__("prc.weather", fromlist=["FEATURES"]).FEATURES,
@@ -204,6 +208,73 @@ def _wave2(frame: pl.DataFrame) -> dict[str, np.ndarray]:
     return out
 
 
+def _runway_config(frame: pl.DataFrame) -> dict[str, np.ndarray]:
+    """Which runways the airport is actually working, around each departure.
+
+    An airport's configuration -- how many runways are open for departures, how
+    the traffic is split across them, and whether departures and arrivals share
+    a runway -- changes with wind and time of day and rewrites taxi routing for
+    everyone on the field. We know each flight's own assigned runway but have
+    had no view of the configuration it sits inside.
+
+    Unlike the rejected reference-taxi feature, this is time-varying and
+    airport-wide rather than a static function of a row's own (stand, runway),
+    so CatBoost cannot already be recovering it from the raw categoricals.
+
+    Reconstructed from movements we already hold, on both sides: RUNWAY_mvt is
+    100% populated on arrival rows in ranking.parquet as well as in training.
+    """
+    epoch = frame["MVT_TIME_UTC_mvt"].dt.epoch("s").to_numpy().astype(np.int64)
+    phase = frame["PHASE_mvt"].to_numpy()
+    # ARR rows are keyed on ADES: only 16% of them have ADEP among the ten.
+    airport = np.where(phase == "DEP", frame["ADEP_mvt"].to_numpy(), frame["ADES_mvt"].to_numpy())
+    runway = frame["RUNWAY_mvt"].to_numpy().astype(str)
+
+    n = len(epoch)
+    out = {k: np.full(n, np.nan) for k in
+           ("rwy_dep_active", "rwy_dep_share", "rwy_arr_active", "rwy_mixed_mode")}
+    half = 1800  # +/- 30 minutes
+
+    for apt in np.unique(airport):
+        at_apt = airport == apt
+        rwys = np.unique(runway[at_apt])
+        index = {r: i for i, r in enumerate(rwys)}
+
+        for want, prefix in (("DEP", "dep"), ("ARR", "arr")):
+            side = at_apt & (phase == want)
+            if not side.any():
+                continue
+            order = np.argsort(epoch[side], kind="stable")
+            times = epoch[side][order]
+            codes = np.array([index[r] for r in runway[side][order]])
+            # cumulative count per runway, so any window is one subtraction
+            onehot = np.zeros((len(times) + 1, len(rwys)), dtype=np.int32)
+            onehot[np.arange(1, len(times) + 1), codes] = 1
+            cum = np.cumsum(onehot, axis=0)
+
+            q = np.flatnonzero(at_apt & (phase == "DEP"))
+            qt = epoch[q]
+            lo = np.searchsorted(times, qt - half, side="left")
+            hi = np.searchsorted(times, qt + half, side="right")
+            counts = cum[hi] - cum[lo]                      # (len(q), len(rwys))
+            active = (counts > 0).sum(axis=1)
+
+            if want == "DEP":
+                total = counts.sum(axis=1)
+                own = np.array([index[r] for r in runway[q]])
+                mine = counts[np.arange(len(q)), own]
+                out["rwy_dep_active"][q] = active
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    out["rwy_dep_share"][q] = np.where(total > 0, mine / np.maximum(total, 1), np.nan)
+            else:
+                out["rwy_arr_active"][q] = active
+                own = np.array([index[r] for r in runway[q]])
+                # Is this departure's runway also taking arrivals? Mixed mode
+                # costs departures time that segregated operation does not.
+                out["rwy_mixed_mode"][q] = (counts[np.arange(len(q)), own] > 0).astype(float)
+    return out
+
+
 def _congestion(frame: pl.DataFrame) -> dict[str, np.ndarray]:
     """Departure and arrival pressure around each movement's wheels-up time.
 
@@ -252,6 +323,7 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
     """
     congestion = _congestion(frame)
     congestion.update(_wave2(frame))
+    congestion.update(_runway_config(frame))
     frame = frame.with_columns(
         [pl.Series(name, values) for name, values in congestion.items()]
     )
