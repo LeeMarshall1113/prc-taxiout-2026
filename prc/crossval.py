@@ -50,6 +50,60 @@ NOPLAN_DROP = [
 ]
 
 
+DAY = 86400.0
+
+
+def drop_day_offsets(frame: pl.DataFrame) -> pl.DataFrame:
+    """Remove training rows whose label is a confirmed one-day timestamp error.
+
+    Identified in notes/2026-09-05-day-offset-check.md: about 15 rows a year
+    where removing a whole number of days leaves a plausible taxi time (median
+    951s against a global median of 912s). Every one is at LIRF or LSZH.
+
+    This is NOT winsorising, which was measured at 78s worse. Winsorising
+    falsifies the label on genuinely long taxis, so the model learns to
+    underpredict real ones. This deletes rows we have proven are corrupt, and
+    only those -- under squared loss each carries on the order of a thousand
+    times an ordinary row's gradient weight, so a handful of them steers a
+    large share of the fit.
+
+    Applied to TRAINING only. Never to anything we score on: the evaluation
+    labels are corrupt in the same way and predicting them is the job.
+    """
+    y = pl.col(TARGET).cast(pl.Float64)
+    residual = y - (y / DAY).round() * DAY
+    corrupt = (y >= 20000) & (residual >= 0) & (residual < 7200)
+    return frame.filter(~corrupt.fill_null(False))
+
+
+def _catboost_kwargs(args) -> dict:
+    """Loss, and the categorical-encoding knobs that have never been touched.
+
+    ``--loss Huber:delta=2000`` keeps eval_metric on RMSE, which CatBoost allows
+    and which costs us nothing since we fix iterations rather than early-stop.
+    Huber is the continuous form of dropping outliers: residuals past delta get
+    linear rather than quadratic weight, so extreme rows stop dominating split
+    selection without their labels being falsified.
+
+    ``one_hot_max_size`` defaults to 2, so today every categorical -- including
+    FLIGHT_RULE_mvt and WK_TBL_CAT_flt, which have a handful of levels -- goes
+    through target-statistic encoding and its prior shrinkage. For a
+    low-cardinality feature that shrinkage is noise, not regularisation.
+    """
+    kwargs = dict(
+        iterations=args.iterations, depth=args.depth, learning_rate=args.lr,
+        l2_leaf_reg=args.l2, thread_count=args.threads, random_seed=1113, verbose=False,
+    )
+    loss = getattr(args, "loss", "RMSE")
+    kwargs["loss_function"] = loss
+    if loss != "RMSE":
+        kwargs["eval_metric"] = "RMSE"
+    ohms = getattr(args, "one_hot_max_size", 0)
+    if ohms:
+        kwargs["one_hot_max_size"] = ohms
+    return kwargs
+
+
 def _fit_predict(train_frame, test_x, feats, cat_idx, y_train, args, seed):
     """Fit on the chosen target scale and return predictions on the SECONDS scale.
 
@@ -68,11 +122,9 @@ def _fit_predict(train_frame, test_x, feats, cat_idx, y_train, args, seed):
     from catboost import CatBoostRegressor, Pool
 
     fit_y = np.log1p(np.maximum(y_train, 0.0)) if args.target == "log" else y_train
-    model = CatBoostRegressor(
-        iterations=args.iterations, depth=args.depth, learning_rate=args.lr,
-        l2_leaf_reg=args.l2, loss_function="RMSE", thread_count=args.threads,
-        random_seed=1113 + seed * 977, verbose=False,
-    )
+    kwargs = _catboost_kwargs(args)
+    kwargs["random_seed"] = 1113 + seed * 977
+    model = CatBoostRegressor(**kwargs)
     train_x = train_frame.select(feats).to_pandas()
     model.fit(Pool(train_x, fit_y, cat_features=cat_idx))
 
@@ -161,6 +213,10 @@ def run_fold(frame, held: tuple[int, int], feats, cat_idx, args) -> dict:
     train = frame.filter(~month.is_in(held))
     test = frame.filter(month.is_in(held))
     train, test = reference.attach(train, test)
+    if getattr(args, "drop_dayoffset", False):
+        before = train.height
+        train = drop_day_offsets(train)
+        print(f"    dropped {before - train.height} confirmed day-offset training rows")
 
     y_train = train[TARGET].to_numpy().astype(float)
     if args.winsor:
@@ -222,6 +278,9 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--winsor", type=float, default=0.0)
     parser.add_argument("--drop", default="")
+    parser.add_argument("--loss", default="RMSE", help='e.g. "Huber:delta=2000"')
+    parser.add_argument("--one-hot-max-size", type=int, default=0)
+    parser.add_argument("--drop-dayoffset", action="store_true")
     parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-target", choices=["raw", "log"], default="raw")
