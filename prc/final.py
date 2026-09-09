@@ -64,6 +64,8 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=0.08)
     parser.add_argument("--threads", type=int, default=5)
     parser.add_argument("--residual", action="store_true")
+    parser.add_argument("--baseline", choices=["aobt", "blend", "blend_apt"], default="aobt")
+    parser.add_argument("--noplan-split-lirf", action="store_true")
     parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-iterations", type=int, default=600)
@@ -102,12 +104,20 @@ def main() -> None:
     # the target. Won 3/3 folds at -6.44s, and -16.22s on the Jan+Jul fold that
     # matches the ranking months. Zero where no flight plan exists, so those
     # rows reduce to the plain target and are routed to the dedicated model.
-    from .crossval import _baseline
+    from .crossval import fit_baseline
 
-    base_train = _baseline(train) if args.residual else 0.0
-    base_rank = _baseline(rank) if args.residual else 0.0
     if args.residual:
-        print(f"  residual mode: NM baseline mean {np.mean(base_rank):.1f}s on the ranking set")
+        # Fit the baseline on training rows and apply it outward, exactly as the
+        # fold rig does. This previously called the raw-gap helper directly, so
+        # a --baseline choice would have been measured on folds and then
+        # silently NOT shipped -- the third time a validated setting could not
+        # reach a submission because the two paths had drifted apart.
+        make_base = fit_baseline(train, args.baseline)
+        base_train, base_rank = make_base(train), make_base(rank)
+        print(f"  residual mode ({args.baseline}): baseline mean "
+              f"{np.mean(base_rank):.1f}s on the ranking set")
+    else:
+        base_train = base_rank = 0.0
     fit_y = y_train - base_train
     if args.target == "log":
         fit_y = np.log1p(np.maximum(fit_y, 0.0))
