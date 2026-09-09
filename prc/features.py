@@ -250,9 +250,19 @@ def _sequence_proxy(frame: pl.DataFrame) -> dict[str, np.ndarray]:
                 continue
             o = i[np.argsort(epoch[i], kind="stable")]
             # shift by one: each row sees only its predecessor
-            out[gap_key][o[1:]] = gap[o[:-1]]
+            head = (epoch[o[1:]] - epoch[o[:-1]]).astype(float)
+            # ...but only if the predecessor is recent enough to mean anything.
+            # ranking.parquet holds January and July of 2026 in one frame, so
+            # July's first departure from a stand otherwise inherits January's,
+            # five months back, and a headway no training month can produce.
+            # _wave2 caps for exactly this reason; this must too.
+            stale = head > _MAX_HEADWAY_S
+            prev = gap[o[:-1]].copy()
+            prev[stale] = np.nan
+            head[stale] = np.nan
+            out[gap_key][o[1:]] = prev
             if head_key:
-                out[head_key][o[1:]] = epoch[o[1:]] - epoch[o[:-1]]
+                out[head_key][o[1:]] = head
     return out
 
 
@@ -422,11 +432,28 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
     # prediction time, and the ranking file holds two months, so a raw count
     # would arrive about twice as large at serve time than at fit time. Dividing
     # by the number of distinct dates present makes the two agree.
-    n_days = max(frame.select(pl.col("MVT_TIME_UTC_mvt").dt.date().n_unique()).item(), 1)
-    pair = frame.group_by("ADEP_mvt", "STAND_mvt", "RUNWAY_mvt").agg(
-        (pl.len() / n_days).alias("stand_runway_pair_n")
+    # Grouped by calendar month as well as by key. Training calls build() once
+    # per monthly file, but the real serve-time call passes the whole of
+    # ranking.parquet, which is January AND July 2026 -- 62 days in one frame.
+    # Dividing by 62 while training divided by 31 halves every key that only
+    # appears in one of the two months and biases the rest; measured, only 3.3%
+    # of served rows came within 1% of what a single-month build gives, and
+    # 13,446 were served exactly half. Grouping by month makes the two agree.
+    frame = frame.with_columns(
+        pl.col("MVT_TIME_UTC_mvt").dt.truncate("1mo").alias("_ym")
     )
-    frame = frame.join(pair, on=["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"], how="left")
+    days = frame.group_by("_ym").agg(
+        pl.col("MVT_TIME_UTC_mvt").dt.date().n_unique().alias("_days")
+    )
+    pair = frame.group_by("ADEP_mvt", "STAND_mvt", "RUNWAY_mvt", "_ym").agg(
+        pl.len().alias("_n")
+    ).join(days, on="_ym", how="left").with_columns(
+        (pl.col("_n") / pl.max_horizontal(pl.col("_days"), pl.lit(1)))
+        .alias("stand_runway_pair_n")
+    ).select("ADEP_mvt", "STAND_mvt", "RUNWAY_mvt", "_ym", "stand_runway_pair_n")
+    frame = frame.join(
+        pair, on=["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt", "_ym"], how="left"
+    ).drop("_ym")
 
 
     built = [f for f in FEATURES if f not in REFERENCE]

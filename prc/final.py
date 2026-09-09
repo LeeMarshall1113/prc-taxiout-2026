@@ -111,6 +111,12 @@ def main() -> None:
     parser.add_argument("--keep", default="",
                         help="comma-separated features to restore to the drop list, "
                              "e.g. the wave-2 columns if they win on folds")
+    parser.add_argument("--loss", default="RMSE",
+                        help="CatBoost loss_function; crossval can measure "
+                             "Huber:delta=N and this could not ship it")
+    parser.add_argument("--l2", type=float, default=3.0)
+    parser.add_argument("--one-hot-max-size", type=int, default=2)
+    parser.add_argument("--drop-dayoffset", action="store_true")
     parser.add_argument("--transform", default="identity")
     parser.add_argument("--team", default=TEAM_NAME)
     parser.add_argument("--version", type=int)
@@ -124,12 +130,24 @@ def main() -> None:
     unknown = keep - set(DROP)
     if unknown:
         raise SystemExit(f'--keep names features that are not dropped: {sorted(unknown)}')
-    feats = [f for f in FEATURES if f not in DROP or f in keep]
+    # One rule for what is dropped, used everywhere below. Filtering the matrix
+    # on `DROP minus keep` but the categorical index on `DROP` alone silently
+    # hands CatBoost a string column it was told is numeric, and it dies on
+    # "LSZH|1" -- which is exactly --keep airport_plan, the feature this whole
+    # module's docstring is written around. crossval.py has always used a single
+    # list; this is the fourth time the two paths have disagreed.
+    dropped = set(DROP) - keep
+    feats = [f for f in FEATURES if f not in dropped]
     if keep:
         print(f'restored to the model: {sorted(keep)}')
-    cat_idx = [feats.index(c) for c in CATEGORICAL if c not in DROP]
+    cat_idx = [feats.index(c) for c in CATEGORICAL if c not in dropped]
 
     train = load_training_features()
+    if args.drop_dayoffset:
+        from .crossval import drop_day_offsets
+        before = train.height
+        train = drop_day_offsets(train)
+        print(f"  --drop-dayoffset: {before - train.height:,} rows removed")
     print(f"training on ALL {train.height:,} rows of 2025 ({len(feats)} features, {args.seeds} seeds)")
 
     rank = build(pl.read_parquet(RAW_DIR / "ranking.parquet"), with_target=False)
@@ -163,7 +181,8 @@ def main() -> None:
     for seed in range(args.seeds):
         model = CatBoostRegressor(
             iterations=args.iterations, depth=args.depth, learning_rate=args.lr,
-            loss_function="RMSE", thread_count=args.threads,
+            loss_function=args.loss, thread_count=args.threads,
+            l2_leaf_reg=args.l2, one_hot_max_size=args.one_hot_max_size,
             random_seed=1113 + seed * 977, verbose=250,
         )
         model.fit(Pool(train_x, fit_y, cat_features=cat_idx))
@@ -187,7 +206,7 @@ def main() -> None:
             noplan_depth = args.noplan_depth
             threads = args.threads
 
-        cat_names = [c for c in CATEGORICAL if c not in DROP]
+        cat_names = [c for c in CATEGORICAL if c not in dropped]
         nmodel, nfeats = fit_noplan(train, feats, cat_names, _A)
         npred = nmodel.predict(rank.select(nfeats).to_pandas())
         route = rank["has_flight_plan"].to_numpy() == 0
