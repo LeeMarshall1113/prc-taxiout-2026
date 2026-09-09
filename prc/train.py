@@ -25,6 +25,7 @@ can. The holdout and the reported metric are never capped.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -32,6 +33,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from . import features as features_module
 from .config import INTERIM_DIR, RAW_DIR, ensure_dirs
 from .features import CATEGORICAL, FEATURES, REFERENCE, TARGET, build
 from .validate import rmse, trimmed_rmse
@@ -45,18 +47,27 @@ RESULTS = Path("results/ablation.jsonl")
 def load_training_features(cache: bool = True) -> pl.DataFrame:
     """Build features month by month, so peak memory is one month not twelve.
 
-    The cache is invalidated automatically when features.py gains a column.
-    Three separate runs have now been lost to a cache written before a feature
-    existed: the failure surfaces deep inside CatBoost as a missing-column
-    error, long after the lease was acquired, and looks nothing like its cause.
+    The cache is invalidated automatically when features.py changes at all --
+    by content hash, not just by column set. Three separate runs were lost to a
+    cache written before a feature existed, which the column check caught; then
+    on 2026-09-09 stand_runway_pair_n changed how it computes without changing
+    its name, which the column check would have sailed straight past, training
+    the model on old values while scoring on new ones.
     """
     cached = INTERIM_DIR / "train_features.parquet"
+    stamp = INTERIM_DIR / "train_features.featurehash"
+    digest = hashlib.sha256(
+        Path(features_module.__file__).read_bytes()
+    ).hexdigest()[:16]
     if cache and cached.exists():
         have = set(pl.scan_parquet(cached).collect_schema().names())
         want = {f for f in FEATURES if f not in REFERENCE}
         missing = want - have
+        prev = stamp.read_text().strip() if stamp.exists() else None
         if missing:
             print(f"cache is stale, missing {sorted(missing)} — rebuilding")
+        elif prev != digest:
+            print(f"cache is stale, features.py changed ({prev} -> {digest}) — rebuilding")
         else:
             return pl.read_parquet(cached)
     ensure_dirs()
@@ -68,6 +79,7 @@ def load_training_features(cache: bool = True) -> pl.DataFrame:
     frame = pl.concat(parts)
     if cache:
         frame.write_parquet(cached)
+        stamp.write_text(digest)
     return frame
 
 
