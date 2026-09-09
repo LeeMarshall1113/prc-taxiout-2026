@@ -40,6 +40,8 @@ DROP = [
     "airport_plan",
     "dep_rwy_30min", "dep_rwy_headway", "arr_taxi_60min", "sched_demand_30min",
     "ref_taxi_s", "ref_level",
+    # measured but not yet fold-validated; opt in with --keep once they win
+    "prev_stand_gap", "prev_stand_headway", "prev_rwy_gap",
     *_WEATHER,
 ]
 
