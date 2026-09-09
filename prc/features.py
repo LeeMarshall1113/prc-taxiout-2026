@@ -56,11 +56,7 @@ NUMERIC = [
     "gap_lobt",
     "dep_delay",
     "sched_vs_eobt",
-    "block_minus_sched",
-    "block_is_sched",
-    "block_sec_00",
     "mvt_sec_00",
-    "stand_sub_rate",
     "dep_30min",
     "arr_30min",
     "dep_60min",
@@ -399,18 +395,9 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
         (mvt - pl.col("LOBT_flt")).dt.total_seconds().alias("gap_lobt"),
         (pl.col("AOBT_3_flt") - pl.col("EOBT_1_flt")).dt.total_seconds().alias("dep_delay"),
         (pl.col("SCHED_TIME_UTC_mvt") - pl.col("EOBT_1_flt")).dt.total_seconds().alias("sched_vs_eobt"),
-        # Timestamp provenance. When the airport had no real off-block reading it
-        # writes the scheduled time into BLOCK_TIME, and then the target is
-        # MVT - SCHED exactly -- an identity the model already holds in
-        # gap_sched but cannot locate without being told which rows they are.
-        (pl.col("BLOCK_TIME_UTC_mvt") - pl.col("SCHED_TIME_UTC_mvt"))
-            .dt.total_seconds().alias("block_minus_sched"),
-        (pl.col("BLOCK_TIME_UTC_mvt") == pl.col("SCHED_TIME_UTC_mvt"))
-            .cast(pl.Int8).alias("block_is_sched"),
         # A sensor reading has uniform seconds; a hand-entered or schedule-copied
-        # one piles up on :00. Seven of the ten airports run ~8.3% against the
-        # 1.67% uniform rate, so these rows carry minute-quantised labels.
-        (pl.col("BLOCK_TIME_UTC_mvt").dt.second() == 0).cast(pl.Int8).alias("block_sec_00"),
+        # one piles up on :00. BLOCK_TIME would say more here but is withheld at
+        # serve time, so only the movement side is usable.
         (mvt.dt.second() == 0).cast(pl.Int8).alias("mvt_sec_00"),
     )
 
@@ -441,26 +428,6 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
     )
     frame = frame.join(pair, on=["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt"], how="left")
 
-    # How often this stand produces a substituted off-block time. The rate
-    # varies 0.6%-9.1% across LIRF stands against a 1.5% airport mean, which
-    # is the documented remote-vs-contact stand split: positions without a
-    # sensor get their off-block time reported by hand, or not at all.
-    #
-    # Shrunk toward the airport rate so that a stand with a handful of rows in
-    # the frame does not arrive as 0.0 or 1.0. block_is_sched is built from two
-    # input columns, so this carries no target information.
-    PRIOR = 200.0
-    stand_rate = frame.group_by("ADEP_mvt", "STAND_mvt").agg(
-        pl.len().alias("_n"), pl.col("block_is_sched").mean().alias("_r")
-    )
-    apt_rate = frame.group_by("ADEP_mvt").agg(
-        pl.col("block_is_sched").mean().alias("_apt_r")
-    )
-    stand_rate = stand_rate.join(apt_rate, on="ADEP_mvt", how="left").with_columns(
-        ((pl.col("_r") * pl.col("_n") + pl.col("_apt_r") * PRIOR)
-         / (pl.col("_n") + PRIOR)).alias("stand_sub_rate")
-    ).select("ADEP_mvt", "STAND_mvt", "stand_sub_rate")
-    frame = frame.join(stand_rate, on=["ADEP_mvt", "STAND_mvt"], how="left")
 
     built = [f for f in FEATURES if f not in REFERENCE]
     keep = ["MVT_ID_mvt", "ADEP_mvt", "STAND_mvt", "RUNWAY_mvt", *built]

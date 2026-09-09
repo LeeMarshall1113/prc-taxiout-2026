@@ -42,8 +42,7 @@ DROP = [
     "ref_taxi_s", "ref_level",
     # measured but not yet fold-validated; opt in with --keep once they win
     "prev_stand_gap", "prev_stand_headway", "prev_rwy_gap",
-    "block_minus_sched", "block_is_sched", "block_sec_00", "mvt_sec_00",
-    "stand_sub_rate",
+    "mvt_sec_00",
     *_WEATHER,
 ]
 

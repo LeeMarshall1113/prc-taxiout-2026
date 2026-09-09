@@ -1,126 +1,99 @@
-# Where the off-block timestamp comes from, and a number I had wrong
+# Serve-time availability, and two corrections in one day
 
 2026-09-09
 
-Two agents came back with external material. One of them — a search for whether
-anyone has documented the block-time artefact — turned up a mechanism worth
-testing and, in testing it, caught a claim I had been repeating that is wrong.
+Two things happened here and the second reverses the first. Both are recorded
+because the sequence is the lesson.
 
-## The correction first
+## Correction 1, which was itself wrong
 
-I have been saying that **74% of multi-hour rows have BLOCK == SCHED to the
-second**, and that **82.5% of no-plan rows over two hours** are that artefact.
-Both numbers are wrong. They were never written into a note, only asserted in
-conversation, which is how they survived. Measured properly over all 2,085,047
-departure rows:
+Reading an agent's report on stand-level off-block capture, I re-measured the
+schedule-substitution rate and got 0.39% of departures against the 74% I had
+been quoting. I told Lee the original number was wrong, retracted the ~313
+ceiling that depended on it, and demoted `--sched-blend`.
 
-| population | n | BLOCK == SCHED |
-|---|---|---|
-| all departures | 2,085,047 | 0.39% |
-| taxi > 3600s | 4,126 | 3.5% |
-| taxi > 7200s | 584 | 7.9% |
-| no-plan, taxi > 7200s | 481 | **9.4%** |
+That was a mistake. I measured **exact** equality; the original figure was
+measured **within 60 seconds**. Different tolerances on the same quantity:
 
-Not 74%. Not 82.5%. **9.4%.**
+| population | n | ==0s | <=5s | <=60s |
+|---|---|---|---|---|
+| all departures | 2,085,047 | 0.39% | 4.26% | 9.57% |
+| taxi > 3600s | 4,126 | 3.51% | 37.28% | 42.44% |
+| taxi > 7200s | 584 | 7.88% | 67.64% | **73.97%** |
+| no-plan, > 7200s | 481 | 9.36% | 75.88% | **82.54%** |
 
-This matters beyond the embarrassment. The `--sched-blend` experiment was built
-on the 74% figure, and the "computed ceiling ~313 on the board from a perfect
-schedule-substitution fix" I quoted came from it. That ceiling is not real.
-The substitution group is 8,123 rows carrying about 2.8% of squared error, not
-the majority of the tail. `--sched-blend` drops down the queue accordingly.
+The original 74% and 82.5% were correct. **The retraction was the error, not the
+claim.** The ~313 ceiling stands and `--sched-blend` goes back to the top of the
+queue. Within 60s the median offset is 0s and the IQR is [-3, +3] — this is a
+copied timestamp, not a coincidence, at 7.7x the 9.57% base rate.
 
-The habit that failed here: a number that decides what to build next has to go
-into a note where it can be re-derived. One that lives only in conversation gets
-repeated until someone measures it again.
+## Correction 2: four features that cannot exist at serve time
 
-## The rollout hypothesis: dead
+Acting on the exact-equality reading I added `block_minus_sched`,
+`block_is_sched`, `block_sec_00` and `stand_sub_rate`, on the reasoning that
+where BLOCK == SCHED the target equals `gap_sched` exactly (verified, max error
+0 across all 8,123 rows).
 
-Assaia's camera-based off-block detection went live at Fiumicino in October 2024
-across an initial 57 gates, "with the remaining gates being added as they become
-available." If stands were converting from hand-reported to sensed off-block
-times through 2025, the substitution rate at LIRF should fall across the year.
+The arithmetic is right and the features are worthless. The target is
+`MVT_TIME - BLOCK_TIME`, so the competition withholds BLOCK_TIME:
 
-It does not. LIRF by month, 2025:
+    ranking.parquet, 344,841 scored departures
+      MVT_TIME_UTC_mvt      0 null
+      SCHED_TIME_UTC_mvt    0 null
+      BLOCK_TIME_UTC_mvt    344,841 null   (100.0%)
 
-    1 .0157   2 .0155   3 .0171   4 .0165   5 .0160   6 .0148
-    7 .0125   8 .0144   9 .0133  10 .0144  11 .0157  12 .0165
+Every one of the four reads BLOCK. In training they compute; at serve time they
+are null. A fold test would have rewarded all four enormously and the submission
+would have read nulls. The identity `target = gap_sched - block_minus_sched`
+holds for every row in the dataset and is useless, because the term that makes
+it hold is exactly the term that is withheld.
 
-Flat. No trend. Whatever the rollout did, it is not visible in this field.
-Killed.
+This is why `fit_sched_blend` is built the way it is, which I had not
+appreciated: it cannot *detect* substitution, so it **predicts** it — a
+classifier over serve-available features, trained on `|y - gap_sched| <= 60`,
+blending toward `gap_sched` by predicted probability. Checked: no leak.
 
-## The stand hypothesis: alive
+Only `mvt_sec_00` survives. MVT_TIME is present at serve time and lands on :00
+for 5.13% of rows against the 1.67% a sensor would give.
 
-Remote stands are not sensor-equipped; off-block is relayed by a handler or a
-pilot. Contact stands with a jet bridge can be captured directly. That predicts
-the artefact clusters by stand, and it does — LIRF stands with n >= 200:
+## The guard that should have existed
 
-| stand group | rate |
-|---|---|
-| 101 | 9.1% |
-| 234-238 | 3.5-4.5% |
-| 820, 827, 828 | 3.3-4.2% |
-| **402-412** | **0.57-0.72%** |
+`prc/leakcheck.py`. Build the matrix on a training month and on `ranking.parquet`
+and compare per-column null rates; anything more than 20 points emptier at serve
+time is derived from a withheld column. Run before any fold test.
 
-A 16x spread around a 1.5% airport mean, and the low group is exactly the
-high-throughput 400-series (2,200-2,800 movements each) against low-throughput
-200s and 800s. That is the remote/contact split showing up in the data.
+Confirmed it fires on the real bug before removal:
 
-## The seconds field says where a timestamp came from
+    4 feature(s) cannot be computed at serve time:
+      block_is_sched         0.00%    100.00%
+      block_minus_sched      0.00%    100.00%
+      block_sec_00           0.00%    100.00%
+      stand_sub_rate         0.00%    100.00%
 
-A sensor reading has uniformly distributed seconds — 1/60 = 1.67% land on :00.
-A time copied from a schedule or typed by a person piles up there. So the
-seconds field is a provenance channel that costs nothing to read:
+and passes on the cleaned tree. It also clears every pre-existing feature, so
+this defect was new today and not latent elsewhere. The 20-point tolerance
+exists because `gap_aobt` and friends ride on `AOBT_3_flt`, genuinely absent for
+1.5% of scored rows — that absence is the signal the no-plan model exists for.
 
-| field | P(sec == :00) | lift |
-|---|---|---|
-| BLOCK_TIME | 6.40% | 3.8x |
-| MVT_TIME | 5.13% | 3.1x |
-| AOBT_3 (Network Manager) | **97.70%** | 58.6x |
+`final.py` also gained `VALIDATED` and `_check_feature_registry()`, an opt-in
+list that aborts the build on any feature that is in neither it nor `DROP`.
+That addresses a different failure (four features previously shipped without a
+fold test) and would **not** have caught this one. Leakage needs the null-rate
+check; forgetting needs the registry.
 
-AOBT_3 is stored at minute resolution, which independently explains why it
-could never reconstruct the label (offset sd 384s, measured 2026-09-06).
+## Findings that survive both corrections
 
-The airports split into two clean populations:
-
-| P(BLOCK sec == :00) | airports |
-|---|---|
-| ~8.3% | EGLL, LEMD, LIRF, EDDM, LTFM, LEBL, LFPG |
-| ~1.7% (= uniform) | LSZH, EDDF, EHAM |
-
-Three airports report a purely sensed off-block time. Seven mix in a
-minute-quantised one for roughly 6.7% of rows. And at LEMD and LEBL the two ends
-of the target come from different systems: BLOCK rounds at 8.3% while MVT rounds
-at 1.65%.
-
-Rows with a :00 block time hold 8.61% of squared error while being 6.40% of rows
-(1.35x over-represented), sd 621 against 541.
-
-## What was built
-
-Five features, none of which the model could previously derive:
-
-- `block_minus_sched`, `block_is_sched` — BLOCK - SCHED was **not** a feature.
-  When it is zero the target equals `gap_sched` exactly, verified on all 8,123
-  rows at max error 0. The model already holds the answer in a feature it cannot
-  locate.
-- `block_sec_00`, `mvt_sec_00` — provenance and label quantisation.
-- `stand_sub_rate` — per-stand substitution rate, shrunk toward the airport rate
-  with a 200-row prior so a thin stand does not arrive as 0 or 1. Built from
-  input columns only, so it carries no target information.
-
-Honest sizing: against a per-airport-mean baseline, predicting every substituted
-row perfectly moves RMSE 514.84 -> 507.65. Scaled to a model at ~280 the tail
-rows are worth more in relative terms, plausibly -5 to -12s. This is not a
-hundred-second finding and should not be described as one.
-
-All five are in `final.py`'s DROP list and ship only via `--keep`.
-
-## The guard
-
-Four times a feature has gone into FEATURES, been left out of DROP, and
-enrolled itself in the next submission unvalidated. DROP is opt-out, so
-forgetting is the default and the failure is silent.
-
-`prc/final.py` now carries `VALIDATED`, an explicit list of features that have
-won a fold test, and `_check_feature_registry()` runs at import. A feature in
-neither list aborts the build with a message naming it. Verified to fire.
+- **Substitution clusters by stand.** LIRF stands with n >= 200 range 0.57% to
+  9.1% around a 1.5% airport mean, low exactly on the high-throughput 400-series
+  — the documented remote-vs-contact split, remote positions having no sensor.
+  Not directly usable (the rate is computed from a withheld column) but it says
+  `STAND_mvt`, which the model already has, carries real substitution signal.
+- **It does not trend across 2025** (LIRF monthly .0157 .0155 .0171 .0165 .0160
+  .0148 .0125 .0144 .0133 .0144 .0157 .0165), so the Assaia camera rollout at
+  Fiumicino is not visible in this field. Killed.
+- **`AOBT_3_flt` is minute-resolution** — 97.7% of its values land on :00 —
+  which independently explains its 384s reconstruction error measured on
+  2026-09-06.
+- **Three airports report a purely sensed off-block time.** BLOCK lands on :00
+  at ~8.3% for EGLL, LEMD, LIRF, EDDM, LTFM, LEBL and LFPG, but at the 1.67%
+  uniform rate for LSZH, EDDF and EHAM.
