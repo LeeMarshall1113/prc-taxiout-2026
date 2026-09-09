@@ -331,7 +331,10 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
     mvt = pl.col("MVT_TIME_UTC_mvt")
     frame = frame.filter(pl.col("PHASE_mvt") == "DEP").with_columns(
         mvt.dt.hour().alias("hour"),
-        (mvt.dt.hour() * 60 + mvt.dt.minute()).alias("minute_of_day"),
+        # .dt.hour() is Int8 and polars keeps that dtype through the multiply,
+        # so hour*60 overflows above 127 and wraps: 21:10 became -10, not 1270.
+        # 99.7% of rows carried a wrong value; every model so far trained on it.
+        (mvt.dt.hour().cast(pl.Int32) * 60 + mvt.dt.minute()).alias("minute_of_day"),
         mvt.dt.weekday().alias("dow"),
         mvt.dt.month().alias("month"),
         mvt.dt.ordinal_day().alias("doy"),

@@ -235,6 +235,60 @@ def _fit_predict(train_frame, test_frame, test_x, feats, cat_idx, y_train, args,
     return np.expm1(model.predict(test_x)) * smearing + base_test
 
 
+class _SchedBlend:
+    """No-plan predictions softly blended toward MVT_TIME - SCHED_TIME.
+
+    When an airport's system has no actual off-block reading it writes the
+    SCHEDULED time into the block field. Measured on 2025: for departures with a
+    taxi-out over two hours, the recorded block time equals the scheduled time to
+    within a minute in 74% of cases, and 82.5% of the no-flight-plan rows over
+    two hours have |y - gap_sched| under 60s. For those rows the target is
+    EXACTLY gap_sched -- an identity, not a correlation.
+
+    A tree cannot represent a coefficient-1 dependence on a continuous feature
+    except as a staircase, which is why gap_sched being available as a feature
+    has never been enough. The identity has to be supplied, the way residualising
+    against the NM gap supplied it for the bulk.
+
+    Blended, never switched. A classifier gives p = P(this row is
+    schedule-substituted) and the prediction is (1-p)*model + p*gap_sched. A hard
+    threshold cost another team 372 -> 625 live; a soft blend degrades gracefully
+    when p is wrong, which on a mixture it often is.
+    """
+
+    def __init__(self, model, clf, feats, cfeats):
+        self._m, self._c, self._f, self._cf = model, clf, feats, cfeats
+
+    def predict(self, frame):
+        base = self._m.predict(frame[self._f])
+        p = self._c.predict_proba(frame[self._cf])[:, 1]
+        sched = np.nan_to_num(frame["gap_sched"].to_numpy(dtype=float), nan=0.0)
+        return (1.0 - p) * base + p * sched
+
+
+def fit_sched_blend(train, model, nfeats, ncats, args):
+    """Train the substitution classifier on the no-plan training rows."""
+    from catboost import CatBoostClassifier, Pool
+
+    sub = train.filter(pl.col("has_flight_plan") == 0)
+    y = sub[TARGET].to_numpy().astype(float)
+    gs = np.nan_to_num(sub["gap_sched"].to_numpy(dtype=float), nan=0.0)
+    label = (np.abs(y - gs) <= 60).astype(int)
+    if label.sum() < 100 or label.sum() == len(label):
+        return model  # nothing to learn from; leave the model alone
+
+    cf = [f for f in nfeats if f != "gap_sched"] + ["gap_sched"]
+    ci = [cf.index(c) for c in cf if c in {nfeats[i] for i in ncats}] if ncats else []
+    clf = CatBoostClassifier(
+        iterations=500, depth=5, learning_rate=0.05, thread_count=args.threads,
+        random_seed=1113, verbose=False,
+    )
+    clf.fit(Pool(sub.select(cf).to_pandas(), label, cat_features=ci))
+    print(f"    schedule-substitution classifier: {label.mean()*100:.1f}% positives "
+          f"on {len(label):,} no-plan training rows")
+    return _SchedBlend(model, clf, nfeats, cf)
+
+
 def _fit_one_noplan(sub, nfeats, ncats, args, weights=None):
     from catboost import CatBoostRegressor, Pool
 
@@ -340,6 +394,10 @@ def fit_noplan(train, feats, cat_features, args):
         learning_rate=0.05, loss_function="RMSE",
         thread_count=args.threads, random_seed=1113, verbose=False,
     )
+    if getattr(args, "sched_blend", False):
+        model.fit(Pool(x, fit_y, cat_features=ncats, weight=weights))
+        return fit_sched_blend(train, model, nfeats, ncats, args), nfeats
+
     if getattr(args, "noplan_split_lirf", False):
         lirf_rows = sub.filter(pl.col("ADEP_mvt") == "LIRF")
         other_rows = sub.filter(pl.col("ADEP_mvt") != "LIRF")
@@ -448,6 +506,8 @@ def main() -> None:
     parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-split-lirf", action="store_true")
+    parser.add_argument("--sched-blend", action="store_true",
+                        help="blend no-plan predictions toward MVT-SCHED where substitution is likely")
     parser.add_argument("--noplan-target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-train", choices=["group", "all", "weighted"], default="group")
     parser.add_argument("--noplan-weight", type=float, default=20.0)
