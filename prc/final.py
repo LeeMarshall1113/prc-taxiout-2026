@@ -42,8 +42,45 @@ DROP = [
     "ref_taxi_s", "ref_level",
     # measured but not yet fold-validated; opt in with --keep once they win
     "prev_stand_gap", "prev_stand_headway", "prev_rwy_gap",
+    "block_minus_sched", "block_is_sched", "block_sec_00", "mvt_sec_00",
+    "stand_sub_rate",
     *_WEATHER,
 ]
+
+# Every feature that has actually won a fold test and is cleared to ship.
+#
+# Four times now a feature has been added to FEATURES, left out of DROP, and
+# silently enrolled in the next submission without ever being validated. DROP
+# is opt-out, so forgetting is the default and the failure is silent. This is
+# the opt-in half: a new feature is in neither list, the check below fails at
+# import, and the build refuses to start until someone decides which it is.
+VALIDATED = frozenset({
+    "ADEP_mvt", "ADES_mvt", "AIRCRAFT_OPERATOR_flt", "AIRCRAFT_TYPE_mvt",
+    "FLIGHT_RULE_mvt", "FLIGHT_TYPE_flt", "MARKET_SEGMENT_flt", "RUNWAY_mvt",
+    "STAND_mvt", "WK_TBL_CAT_flt", "arr_30min", "arr_60min", "dep_30min",
+    "dep_60min", "dep_delay", "dow", "doy", "gap_aobt", "gap_eobt", "gap_lobt",
+    "gap_sched", "has_flight_plan", "hour", "is_weekend", "minute_of_day",
+    "month", "rwy_arr_active", "rwy_dep_active", "rwy_dep_share",
+    "rwy_mixed_mode", "sched_vs_eobt", "stand_runway_pair_n",
+})
+
+
+def _check_feature_registry() -> None:
+    shipping = {f for f in FEATURES if f not in DROP}
+    unclassified = shipping - VALIDATED
+    if unclassified:
+        raise SystemExit(
+            f"these features would ship without ever having won a fold test: "
+            f"{sorted(unclassified)}" + chr(10) +
+            f"Add each one to prc.final.DROP (untested -- opt in later with "
+            f"--keep) or to VALIDATED (it won its folds; say which run)."
+        )
+    stale = VALIDATED - set(FEATURES)
+    if stale:
+        raise SystemExit(f"VALIDATED names features that no longer exist: {sorted(stale)}")
+
+
+_check_feature_registry()
 
 
 def resolve_transform(spec: str):
