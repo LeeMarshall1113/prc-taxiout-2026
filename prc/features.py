@@ -68,6 +68,9 @@ NUMERIC = [
     "rwy_dep_share",
     "rwy_arr_active",
     "rwy_mixed_mode",
+    "prev_stand_gap",
+    "prev_stand_headway",
+    "prev_rwy_gap",
     "stand_runway_pair_n",
     "ref_taxi_s",
     *__import__("prc.weather", fromlist=["FEATURES"]).FEATURES,
@@ -208,6 +211,50 @@ def _wave2(frame: pl.DataFrame) -> dict[str, np.ndarray]:
     return out
 
 
+def _sequence_proxy(frame: pl.DataFrame) -> dict[str, np.ndarray]:
+    """What the PREVIOUS departure from this stand, and this runway, experienced.
+
+    A flight's own (MVT - AOBT_3) gap is its best single predictor at r=0.536,
+    but it is null for the rows that hurt us most. The neighbouring flights'
+    gaps are not: they come from other rows, and every input is present in
+    ranking.parquet -- MVT_TIME 0% null, AOBT_3 1.53%, STAND and RUNWAY ~0%.
+
+    Measured: the previous same-stand departure's gap correlates 0.27 with this
+    row's target overall and 0.38 on flight-plan-present non-LIRF rows, against
+    0.11 for the shipped arrival-taxi feature. Inside the no-flight-plan group,
+    which has no timestamp features at all because every _flt column is null on
+    the row itself, it still carries 0.15 to 0.18.
+
+    Strictly backward-looking: only departures that have already taken off.
+    """
+    epoch = frame["MVT_TIME_UTC_mvt"].dt.epoch("s").to_numpy().astype(np.int64)
+    phase = frame["PHASE_mvt"].to_numpy()
+    airport = np.where(phase == "DEP", frame["ADEP_mvt"].to_numpy(), frame["ADES_mvt"].to_numpy())
+    gap = (frame["MVT_TIME_UTC_mvt"] - frame["AOBT_3_flt"]).dt.total_seconds().to_numpy().astype(float)
+
+    n = len(epoch)
+    out = {k: np.full(n, np.nan) for k in
+           ("prev_stand_gap", "prev_stand_headway", "prev_rwy_gap")}
+    dep = phase == "DEP"
+
+    for field, gap_key, head_key in (
+        ("STAND_mvt", "prev_stand_gap", "prev_stand_headway"),
+        ("RUNWAY_mvt", "prev_rwy_gap", None),
+    ):
+        key = np.char.add(np.char.add(airport.astype(str), "|"),
+                          frame[field].to_numpy().astype(str))
+        for k in np.unique(key[dep]):
+            i = np.flatnonzero(dep & (key == k))
+            if len(i) < 2:
+                continue
+            o = i[np.argsort(epoch[i], kind="stable")]
+            # shift by one: each row sees only its predecessor
+            out[gap_key][o[1:]] = gap[o[:-1]]
+            if head_key:
+                out[head_key][o[1:]] = epoch[o[1:]] - epoch[o[:-1]]
+    return out
+
+
 def _runway_config(frame: pl.DataFrame) -> dict[str, np.ndarray]:
     """Which runways the airport is actually working, around each departure.
 
@@ -324,6 +371,7 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
     congestion = _congestion(frame)
     congestion.update(_wave2(frame))
     congestion.update(_runway_config(frame))
+    congestion.update(_sequence_proxy(frame))
     frame = frame.with_columns(
         [pl.Series(name, values) for name, values in congestion.items()]
     )
