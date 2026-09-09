@@ -129,7 +129,7 @@ def fit_baseline(train: pl.DataFrame, mode: str):
     Fitted on training rows and applied outward, like prc.reference: the
     coefficients see no row they are later used to predict.
     """
-    if mode != "blend":
+    if mode not in ("blend", "blend_apt"):
         return lambda f: np.nan_to_num(f["gap_aobt"].to_numpy().astype(float),
                                        nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -138,12 +138,35 @@ def fit_baseline(train: pl.DataFrame, mode: str):
     # Fit on flight-plan rows only: elsewhere every gap is zero and the rows are
     # routed to the dedicated model anyway, so they would only drag the fit.
     keep = train["has_flight_plan"].to_numpy() == 1
-    coef, *_ = np.linalg.lstsq(x[keep], y[keep], rcond=None)
+    apt_train = train["ADEP_mvt"].to_numpy()
+
+    def _solve(mask):
+        return np.linalg.lstsq(x[mask], y[mask], rcond=None)[0]
+
+    global_coef = _solve(keep)
     print("    baseline blend: " + "  ".join(
-        f"{n}={c:+.3f}" for n, c in zip(BASELINE_COLS + ["const"], coef)))
+        f"{n}={c:+.3f}" for n, c in zip(BASELINE_COLS + ["const"], global_coef)))
+
+    per_airport = {}
+    if mode == "blend_apt":
+        # Ten airports with different layouts and procedures have no reason to
+        # share one linear relation between a filed estimate and actual taxi.
+        for a in np.unique(apt_train[keep]):
+            m = keep & (apt_train == a)
+            if m.sum() >= 5000:
+                per_airport[a] = _solve(m)
+        print(f"    per-airport baselines fitted for {len(per_airport)} of "
+              f"{len(np.unique(apt_train))} airports")
 
     def apply(frame: pl.DataFrame) -> np.ndarray:
-        out = _baseline_matrix(frame) @ coef
+        mat = _baseline_matrix(frame)
+        out = mat @ global_coef
+        if per_airport:
+            apt = frame["ADEP_mvt"].to_numpy()
+            for a, coef in per_airport.items():
+                at = apt == a
+                if at.any():
+                    out[at] = mat[at] @ coef
         # no flight plan -> no baseline; those rows go to the dedicated model
         return np.where(frame["has_flight_plan"].to_numpy() == 1, out, 0.0)
 
@@ -416,7 +439,7 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--winsor", type=float, default=0.0)
     parser.add_argument("--drop", default="")
-    parser.add_argument("--baseline", choices=["aobt", "blend"], default="aobt")
+    parser.add_argument("--baseline", choices=["aobt", "blend", "blend_apt"], default="aobt")
     parser.add_argument("--residual", action="store_true",
                         help="model the correction to the NM baseline, not the target")
     parser.add_argument("--loss", default="RMSE", help='e.g. "Huber:delta=2000"')
