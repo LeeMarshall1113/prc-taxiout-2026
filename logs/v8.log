@@ -63,3 +63,21 @@ scoring 344,841 ranking rows
 500:	learn: 252.3534305	total: 10m 32s	remaining: 42m 1s
 750:	learn: 240.7074311	total: 16m 12s	remaining: 37m 45s
 1000:	learn: 232.5677460	total: 21m 48s	remaining: 32m 38s
+1250:	learn: 227.5441864	total: 27m 7s	remaining: 27m 4s
+1500:	learn: 222.6195227	total: 32m 15s	remaining: 21m 28s
+1750:	learn: 219.1474355	total: 37m 24s	remaining: 16m
+2000:	learn: 216.4073018	total: 42m 31s	remaining: 10m 36s
+2250:	learn: 213.7227178	total: 47m 18s	remaining: 5m 13s
+2499:	learn: 211.5029783	total: 52m 6s	remaining: 0us
+  seed 2 done
+    no-plan routed: LIRF 1,488, other 20,982
+  no-plan routing: LIRF
+  dedicated no-plan model: 40 features, routing 5,290 rows
+    global mean on those rows   1597.6s -> dedicated   1602.1s
+
+transform identity: changed 0 of 344,841 predictions
+  mean=1038.2s median=959.7s max=83918.0s
+wrote C:\Users\hackathon\Documents\GitHub\prc-taxiout-2026\submissions\jolly-lobster_v8.parquet  (344,841 rows)
+uploaded jolly-lobster_v8.parquet (1.10 MB) to s3://prc-2026-jolly-lobster/jolly-lobster_v8.parquet
+=== v8 exit 0 at 03:47:05Z ===
+lease released at 03:47:05Z

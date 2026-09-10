@@ -1,2 +1,14 @@
 === waiting for prc-taxiout-335 at 01:23:49Z ===
 === waiting for prc-taxiout-335 at 01:54:39Z ===
+=== v9 start 03:47:07Z ===
+
+########## v9_base ##########
+[v9_base] 52 features, 6 folds, 2500 iterations
+=== v9b start 03:47:12Z ===
+
+########## substitution classifier ##########
+loaded 2,085,047 rows x 19 columns from cache
+training rows 2,085,047
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
+0:	total: 720ms	remaining: 7m 11s
+    per-airport baselines fitted for 10 of 10 airports
