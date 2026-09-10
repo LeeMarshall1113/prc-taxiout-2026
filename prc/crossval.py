@@ -592,6 +592,10 @@ def main() -> None:
     parser.add_argument("--noplan-train", choices=["group", "all", "weighted"], default="group")
     parser.add_argument("--noplan-weight", type=float, default=20.0)
     parser.add_argument("--noplan-iterations", type=int, default=600)
+    # final.py has always had this; crossval read it off args and got the
+    # getattr default instead. Harmless until require_noplan_settings made the
+    # mismatch fatal -- which is the guard doing its job, one caller late.
+    parser.add_argument("--noplan-depth", type=int, default=6)
     parser.add_argument("--seeds", type=int, default=1, help="models per fold, averaged")
     parser.add_argument("--save-preds", action="store_true")
     parser.add_argument("--folds", default="", help="1-based fold indices, e.g. 1,3,5 (default all)")

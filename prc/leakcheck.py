@@ -32,6 +32,29 @@ def null_rates(frame: pl.DataFrame) -> dict[str, float]:
     return {c: out[c].null_count() / n for c in built if c in out.columns}
 
 
+def parser_parity() -> list[str]:
+    """Both entry points must be able to set every setting fit_noplan reads.
+
+    crossval measures, final ships, and they have drifted apart six times. On
+    2026-09-10 the drift was the other way round for once: final gained every
+    flag and crossval was the one missing --noplan-depth, which cost a fold run.
+    """
+    import inspect
+    import re
+
+    from . import crossval, final
+
+    out = []
+    for mod, name in ((crossval, "crossval"), (final, "final")):
+        src = inspect.getsource(mod)
+        opts = {m.group(1).replace("-", "_")
+                for m in re.finditer(r'add_argument\("--([a-z0-9-]+)"', src)}
+        for k in crossval.NOPLAN_SETTINGS:
+            if k not in opts:
+                out.append(f"{name} cannot set --{k.replace('_','-')}")
+    return out
+
+
 def value_ranges(frame: pl.DataFrame) -> dict[str, tuple[float, float]]:
     """Per-numeric-feature (min, max), ignoring nulls and NaNs."""
     import numpy as np
@@ -123,6 +146,13 @@ def main() -> None:
     p.add_argument("--ranking", default="data/raw/ranking.parquet")
     args = p.parse_args()
 
+    parity = parser_parity()
+    if parity:
+        print("parser parity:")
+        for line in parity:
+            print("  " + line)
+        print("")
+
     rng = compare_framing(args.ranking)
     if rng:
         print(f"{len(rng)} feature(s) change value when the frame is split by month:")
@@ -138,7 +168,7 @@ def main() -> None:
 
     bad = compare(args.train, args.ranking)
     if not bad:
-        if rng:
+        if rng or parity:
             raise SystemExit(1)
         print("clean: every feature is as available, and as bounded, at serve "
               "time as in training")

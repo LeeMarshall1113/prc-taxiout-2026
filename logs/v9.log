@@ -12,3 +12,67 @@ training rows 2,085,047
     baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
 0:	total: 720ms	remaining: 7m 11s
     per-airport baselines fitted for 10 of 10 airports
+200:	total: 2m 15s	remaining: 4m 29s
+400:	total: 4m 31s	remaining: 2m 14s
+599:	total: 6m 46s	remaining: 0us
+  calibration: raw mean p 0.537 -> 0.536; train-pocket actual rate 0.700
+  rollover rows in this fold: 5 of 181
+  EXCLUDING rollovers -- band 5.097e+09  clf 5.612e+09  oracle 5.097e+09
+  classifier below 14,400s only, band above: SSE 4.1074e+09
+
+fold (1, 7): 181 pocket rows, AUC 0.8520
+  band rate  SSE 5.9061e+09
+  raw clf    SSE 6.2708e+09   (uncalibrated)
+  classifier SSE 6.3760e+09   captured  -8.2% of the gap
+  oracle     SSE 1.6524e+08
+0:	total: 627ms	remaining: 6m 15s
+200:	total: 2m 15s	remaining: 4m 28s
+400:	total: 4m 28s	remaining: 2m 13s
+599:	total: 6m 41s	remaining: 0us
+  calibration: raw mean p 0.639 -> 0.658; train-pocket actual rate 0.624
+  rollover rows in this fold: 2 of 98
+  EXCLUDING rollovers -- band 2.185e+09  clf 2.417e+09  oracle 2.185e+09
+  classifier below 14,400s only, band above: SSE 2.8698e+09
+
+fold (3, 9): 98 pocket rows, AUC 0.8965
+  band rate  SSE 3.4076e+09
+  raw clf    SSE 3.3519e+09   (uncalibrated)
+  classifier SSE 3.1251e+09   captured   8.4% of the gap
+  oracle     SSE 5.6763e+07
+0:	total: 635ms	remaining: 6m 20s
+200:	total: 2m 16s	remaining: 4m 29s
+400:	total: 4m 31s	remaining: 2m 14s
+599:	total: 6m 45s	remaining: 0us
+  calibration: raw mean p 0.658 -> 0.669; train-pocket actual rate 0.622
+  rollover rows in this fold: 2 of 56
+  EXCLUDING rollovers -- band 8.609e+08  clf 3.072e+08  oracle 8.609e+08
+  classifier below 14,400s only, band above: SSE 1.2523e+09
+
+fold (5, 11): 56 pocket rows, AUC 0.9528
+  band rate  SSE 1.7820e+09
+  raw clf    SSE 5.7587e+08   (uncalibrated)
+  classifier SSE 4.1311e+08   captured  77.7% of the gap
+  oracle     SSE 2.0228e+07
+
+      fold     n     AUC    band SSE     clf SSE  captured
+    (1, 7)   181  0.8520   5.906e+09   6.376e+09     -8.2%
+    (3, 9)    98  0.8965   3.408e+09   3.125e+09      8.4%
+   (5, 11)    56  0.9528   1.782e+09   4.131e+08     77.7%
+
+mean captured 26.0%   beats the band rate on 2/3 folds
+Board translation, from notes/2026-09-10-the-lirf-pocket.md:
+  0% -> 288.9   50% -> 264.6   75% -> 251.5   100% -> 237.8
+
+########## fold tests ##########
+
+########## v9_base ##########
+[v9_base] 52 features, 6 folds, 2500 iterations
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
+    per-airport baselines fitted for 10 of 10 airports
+fit_noplan was handed an args object missing ['noplan_depth']; it would silently use defaults for them. Pass the real parsed args, or add these to whatever stand-in is being used.
+[v9] v9_base FAILED
+
+########## v9_bulk ##########
+[v9_bulk] 52 features, 6 folds, 2500 iterations
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
+    per-airport baselines fitted for 10 of 10 airports
