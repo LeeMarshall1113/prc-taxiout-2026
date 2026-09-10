@@ -105,6 +105,10 @@ def main() -> None:
     parser.add_argument("--residual", action="store_true")
     parser.add_argument("--baseline", choices=["aobt", "blend", "blend_apt"], default="aobt")
     parser.add_argument("--noplan-split-lirf", action="store_true")
+    parser.add_argument("--bulk-plan-only", action="store_true",
+                        help="train the global model only on rows that have a "
+                             "flight plan -- its predictions on the others are "
+                             "discarded anyway")
     parser.add_argument("--noplan-routes", default="",
                         help="comma-separated ICAO codes that each get their own "
                              "no-plan model, e.g. LIRF,LFPG,LSZH; overrides "
@@ -192,7 +196,15 @@ def main() -> None:
     fit_y = y_train - base_train
     if args.target == "log":
         fit_y = np.log1p(np.maximum(fit_y, 0.0))
-    train_x = train.select(feats).to_pandas()
+    if args.bulk_plan_only:
+        keep = (train["has_flight_plan"] == 1).to_numpy()
+        train_bulk = train.filter(pl.col("has_flight_plan") == 1)
+        fit_y = fit_y[keep]
+        print(f"  --bulk-plan-only: global model fits {train_bulk.height:,} of "
+              f"{train.height:,} rows")
+    else:
+        train_bulk = train
+    train_x = train_bulk.select(feats).to_pandas()
     for seed in range(args.seeds):
         model = CatBoostRegressor(
             iterations=args.iterations, depth=args.depth, learning_rate=args.lr,

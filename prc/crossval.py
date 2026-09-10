@@ -213,6 +213,23 @@ def _fit_predict(train_frame, test_frame, test_x, feats, cat_idx, y_train, args,
     """
     from catboost import CatBoostRegressor, Pool
 
+    # The global model's predictions on no-flight-plan rows are thrown away --
+    # `np.where(has_plan, bagged, npred)` replaces every one of them with the
+    # dedicated model's. But those rows are still in its training set, and on
+    # the residual scale they are enormous (sd ~3,400s against a few hundred for
+    # plan rows), so they steer a large share of every split. CatBoost's trees
+    # are oblivious: one level splitting on has_flight_plan does not stop those
+    # rows shaping the other levels, or the ordered target statistics for
+    # STAND_mvt, which are pooled over all rows.
+    #
+    # This is not the np_all experiment reversed. That asked whether the no-plan
+    # model does better seeing all rows (it does not, 0/3 -- the specialisation
+    # is the value). This asks the same question of the other model.
+    if getattr(args, "bulk_plan_only", False):
+        keep = (train_frame["has_flight_plan"] == 1).to_numpy()
+        train_frame = train_frame.filter(pl.col("has_flight_plan") == 1)
+        y_train = y_train[keep]
+
     if getattr(args, "residual", False):
         make_base = fit_baseline(train_frame, getattr(args, "baseline", "aobt"))
         base_train, base_test_v = make_base(train_frame), make_base(test_frame)
@@ -561,6 +578,10 @@ def main() -> None:
     parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-split-lirf", action="store_true")
+    parser.add_argument("--bulk-plan-only", action="store_true",
+                        help="train the global model only on rows that have a "
+                             "flight plan -- its predictions on the others are "
+                             "discarded anyway")
     parser.add_argument("--noplan-routes", default="",
                         help="comma-separated ICAO codes that each get their own "
                              "no-plan model, e.g. LIRF,LFPG,LSZH; overrides "
