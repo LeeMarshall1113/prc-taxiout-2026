@@ -9,3 +9,69 @@
   fold (1, 7): seed0   437.12  bagged(1)   334.59  gain +102.53  bulk  238.72  (1460s)
     baseline blend: gap_aobt=+0.436  gap_eobt=+0.198  gap_lobt=+0.061  gap_sched=+0.003  const=+190.801
     per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,261, other 17,662
+    dedicated no-plan model: global   2113.0 ->   1184.9 on 3,547 rows | overall  296.75 ->  238.53
+  fold (3, 9): seed0   296.75  bagged(1)   238.53  gain +58.21  bulk  207.47  (1644s)
+    baseline blend: gap_aobt=+0.432  gap_eobt=+0.193  gap_lobt=+0.063  gap_sched=+0.003  const=+197.073
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,337, other 18,172
+    dedicated no-plan model: global   2608.8 ->   1954.5 on 2,961 rows | overall  313.52 ->  269.92
+  fold (5, 11): seed0   313.52  bagged(1)   269.92  gain +43.60  bulk  201.63  (1895s)
+
+  mean RMSE   281.01  sd  48.98  range 238.5..334.6
+  mean bulk   215.94  sd  19.94
+appended to results\crossval.jsonl
+
+########## b_combo ##########
+[b_combo] 52 features, 6 folds, 2500 iterations
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,091, LFPG 2,893, LSZH 1,767, other 11,346
+    dedicated no-plan model: global   3909.0 ->   1980.0 on 5,373 rows | overall  540.00 ->  338.20
+  fold (1, 7): seed0   540.00  bagged(1)   338.20  gain +201.79  bulk  232.53  (1866s)
+    baseline blend: gap_aobt=+0.436  gap_eobt=+0.198  gap_lobt=+0.061  gap_sched=+0.003  const=+190.801
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,261, LFPG 3,278, LSZH 1,922, other 12,462
+    dedicated no-plan model: global   3199.0 ->   1063.5 on 3,547 rows | overall  382.04 ->  230.84
+  fold (3, 9): seed0   382.04  bagged(1)   230.84  gain +151.21  bulk  205.43  (1883s)
+    baseline blend: gap_aobt=+0.432  gap_eobt=+0.193  gap_lobt=+0.063  gap_sched=+0.003  const=+197.073
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,337, LFPG 3,136, LSZH 1,967, other 13,069
+    dedicated no-plan model: global   3230.2 ->   1879.9 on 2,961 rows | overall  358.11 ->  263.54
+  fold (5, 11): seed0   358.11  bagged(1)   263.54  gain +94.57  bulk  199.20  (1810s)
+
+  mean RMSE   277.53  sd  55.03  range 230.8..338.2
+  mean bulk   212.38  sd  17.72
+appended to results\crossval.jsonl
+
+########## b_lossguide ##########
+[b_lossguide] 51 features, 6 folds, 2500 iterations
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,091, other 16,006
+    dedicated no-plan model: global   2718.9 ->   1898.9 on 5,373 rows | overall  415.13 ->  336.54
+  fold (1, 7): seed0   415.13  bagged(1)   336.54  gain +78.59  bulk  240.64  (1285s)
+    baseline blend: gap_aobt=+0.436  gap_eobt=+0.198  gap_lobt=+0.061  gap_sched=+0.003  const=+190.801
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,261, other 17,662
+    dedicated no-plan model: global   2184.1 ->   1182.3 on 3,547 rows | overall  304.10 ->  241.12
+  fold (3, 9): seed0   304.10  bagged(1)   241.12  gain +62.98  bulk  210.62  (1461s)
+    baseline blend: gap_aobt=+0.432  gap_eobt=+0.193  gap_lobt=+0.063  gap_sched=+0.003  const=+197.073
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,337, other 18,172
+    dedicated no-plan model: global   2737.8 ->   1908.7 on 2,961 rows | overall  326.45 ->  271.57
+  fold (5, 11): seed0   326.45  bagged(1)   271.57  gain +54.88  bulk  207.55  (1414s)
+
+  mean RMSE   283.08  sd  48.74  range 241.1..336.5
+  mean bulk   219.61  sd  18.28
+appended to results\crossval.jsonl
+
+########## b_depthwise ##########
+[b_depthwise] 51 features, 6 folds, 2500 iterations
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,091, other 16,006
+    dedicated no-plan model: global   2786.7 ->   1898.9 on 5,373 rows | overall  421.65 ->  336.01
+  fold (1, 7): seed0   421.65  bagged(1)   336.01  gain +85.65  bulk  239.89  (1188s)
+    baseline blend: gap_aobt=+0.436  gap_eobt=+0.198  gap_lobt=+0.061  gap_sched=+0.003  const=+190.801
+    per-airport baselines fitted for 10 of 10 airports

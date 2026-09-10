@@ -4,3 +4,29 @@
 [lobt_feat] 51 features, 6 folds, 2500 iterations
     baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
     per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,091, other 16,006
+    dedicated no-plan model: global   2860.1 ->   1898.9 on 5,373 rows | overall  427.36 ->  333.58
+  fold (1, 7): seed0   427.36  bagged(1)   333.58  gain +93.78  bulk  236.43  (2752s)
+    baseline blend: gap_aobt=+0.436  gap_eobt=+0.198  gap_lobt=+0.061  gap_sched=+0.003  const=+190.801
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,261, other 17,662
+    dedicated no-plan model: global   2029.6 ->   1182.3 on 3,547 rows | overall  290.11 ->  237.61
+  fold (3, 9): seed0   290.11  bagged(1)   237.61  gain +52.50  bulk  206.54  (2730s)
+    baseline blend: gap_aobt=+0.432  gap_eobt=+0.193  gap_lobt=+0.063  gap_sched=+0.003  const=+197.073
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,337, other 18,172
+    dedicated no-plan model: global   2529.9 ->   1908.7 on 2,961 rows | overall  307.34 ->  266.39
+  fold (5, 11): seed0   307.34  bagged(1)   266.39  gain +40.94  bulk  200.67  (2550s)
+
+  mean RMSE   279.19  sd  49.25  range 237.6..333.6
+  mean bulk   214.55  sd  19.18
+appended to results\crossval.jsonl
+
+########## lobt_base ##########
+[lobt_base] 50 features, 6 folds, 2500 iterations
+    no-plan routed: LIRF 1,091, other 16,006
+    dedicated no-plan model: global   2863.5 ->   1892.1 on 5,373 rows | overall  431.69 ->  338.07
+  fold (1, 7): seed0   431.69  bagged(1)   338.07  gain +93.62  bulk  243.66  (2448s)
+    no-plan routed: LIRF 1,261, other 17,662
+    dedicated no-plan model: global   2140.1 ->   1184.9 on 3,547 rows | overall  301.60 ->  242.14
+  fold (3, 9): seed0   301.60  bagged(1)   242.14  gain +59.47  bulk  211.64  (2481s)
