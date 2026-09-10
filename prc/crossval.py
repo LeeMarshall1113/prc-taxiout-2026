@@ -212,6 +212,37 @@ def _baseline(frame: pl.DataFrame) -> np.ndarray:
     return np.nan_to_num(gap, nan=0.0, posinf=0.0, neginf=0.0)
 
 
+def prepare_residual(frame, y, args, apply_to=None):
+    """The residual setup, in ONE place, because order matters and drifts.
+
+    --bulk-plan-only filters the training rows; --residual fits a baseline on
+    them. Doing those two in the opposite order gives a different baseline and
+    therefore a different target. crossval filtered first and final fitted
+    first, so v10 shipped a configuration no fold ever tested and lost 10.8s
+    against v8. That is the seventh time these two paths have disagreed, and the
+    first where I introduced the disagreement myself by patching both files by
+    hand instead of giving them one function to call.
+
+    Returns (frame, fit_y, base_for_apply_to).
+    """
+    if getattr(args, "bulk_plan_only", False):
+        keep = (frame["has_flight_plan"] == 1).to_numpy()
+        frame = frame.filter(pl.col("has_flight_plan") == 1)
+        y = y[keep]
+
+    if getattr(args, "residual", False):
+        make_base = fit_baseline(frame, getattr(args, "baseline", "aobt"))
+        base_train = make_base(frame)
+        base_other = make_base(apply_to) if apply_to is not None else 0.0
+    else:
+        base_train = base_other = 0.0
+
+    fit_y = y - base_train
+    if getattr(args, "target", "raw") == "log":
+        fit_y = np.log1p(np.maximum(fit_y, 0.0))
+    return frame, fit_y, base_other
+
+
 def _fit_predict(train_frame, test_frame, test_x, feats, cat_idx, y_train, args, seed):
     """Fit on the chosen target scale and return predictions on the SECONDS scale.
 
@@ -241,19 +272,8 @@ def _fit_predict(train_frame, test_frame, test_x, feats, cat_idx, y_train, args,
     # This is not the np_all experiment reversed. That asked whether the no-plan
     # model does better seeing all rows (it does not, 0/3 -- the specialisation
     # is the value). This asks the same question of the other model.
-    if getattr(args, "bulk_plan_only", False):
-        keep = (train_frame["has_flight_plan"] == 1).to_numpy()
-        train_frame = train_frame.filter(pl.col("has_flight_plan") == 1)
-        y_train = y_train[keep]
-
-    if getattr(args, "residual", False):
-        make_base = fit_baseline(train_frame, getattr(args, "baseline", "aobt"))
-        base_train, base_test_v = make_base(train_frame), make_base(test_frame)
-    else:
-        base_train = base_test_v = 0.0
-    fit_y = y_train - base_train
-    if args.target == "log":
-        fit_y = np.log1p(np.maximum(fit_y, 0.0))
+    train_frame, fit_y, base_test_v = prepare_residual(
+        train_frame, y_train, args, apply_to=test_frame)
     kwargs = _catboost_kwargs(args)
     kwargs["random_seed"] = 1113 + seed * 977
     model = CatBoostRegressor(**kwargs)

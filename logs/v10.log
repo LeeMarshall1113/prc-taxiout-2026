@@ -10,3 +10,49 @@ scoring 344,841 ranking rows
   residual mode (blend_apt): baseline mean 999.1s on the ranking set
   --bulk-plan-only: global model fits 2,062,577 of 2,085,047 rows
 0:	learn: 281.7908441	total: 978ms	remaining: 40m 43s
+250:	learn: 221.2359741	total: 3m 16s	remaining: 29m 17s
+500:	learn: 213.8227250	total: 6m 33s	remaining: 26m 10s
+750:	learn: 209.9697400	total: 9m 50s	remaining: 22m 54s
+1000:	learn: 207.0027501	total: 13m 4s	remaining: 19m 34s
+1250:	learn: 204.5264966	total: 16m 17s	remaining: 16m 16s
+1500:	learn: 202.5413353	total: 19m 30s	remaining: 12m 59s
+1750:	learn: 200.8654806	total: 22m 45s	remaining: 9m 44s
+2000:	learn: 199.3420709	total: 25m 58s	remaining: 6m 28s
+2250:	learn: 198.0515399	total: 29m 11s	remaining: 3m 13s
+2499:	learn: 196.9019268	total: 32m 25s	remaining: 0us
+  seed 0 done
+0:	learn: 281.7722897	total: 756ms	remaining: 31m 29s
+250:	learn: 220.6285612	total: 3m 10s	remaining: 28m 23s
+500:	learn: 213.6689922	total: 6m 22s	remaining: 25m 27s
+750:	learn: 209.6789581	total: 9m 35s	remaining: 22m 20s
+1000:	learn: 206.7248995	total: 12m 50s	remaining: 19m 13s
+1250:	learn: 204.2636020	total: 16m 2s	remaining: 16m
+1500:	learn: 202.2538041	total: 19m 15s	remaining: 12m 49s
+1750:	learn: 200.5795236	total: 22m 30s	remaining: 9m 37s
+2000:	learn: 199.0631372	total: 25m 47s	remaining: 6m 25s
+2250:	learn: 197.7756720	total: 29m 2s	remaining: 3m 12s
+2499:	learn: 196.5650486	total: 32m 11s	remaining: 0us
+  seed 1 done
+0:	learn: 281.7765086	total: 710ms	remaining: 29m 34s
+250:	learn: 220.6921869	total: 3m 10s	remaining: 28m 25s
+500:	learn: 213.8063607	total: 6m 22s	remaining: 25m 25s
+750:	learn: 209.7509495	total: 9m 31s	remaining: 22m 10s
+1000:	learn: 206.8739057	total: 12m 42s	remaining: 19m 2s
+1250:	learn: 204.4107905	total: 15m 54s	remaining: 15m 53s
+1500:	learn: 202.4884047	total: 19m 9s	remaining: 12m 45s
+1750:	learn: 200.7678737	total: 22m 18s	remaining: 9m 32s
+2000:	learn: 199.2602056	total: 25m 31s	remaining: 6m 21s
+2250:	learn: 197.8861967	total: 28m 42s	remaining: 3m 10s
+2499:	learn: 196.7235144	total: 31m 56s	remaining: 0us
+  seed 2 done
+    no-plan routed: LIRF 1,488, LFPG 3,773, LSZH 2,291, other 14,918
+  no-plan routing: LIRF, LFPG, LSZH
+  dedicated no-plan model: 41 features, routing 5,290 rows
+    global mean on those rows   3729.7s -> dedicated   1586.8s
+
+transform identity: changed 0 of 344,841 predictions
+  mean=1038.1s median=959.0s max=91248.9s
+wrote C:\Users\hackathon\Documents\GitHub\prc-taxiout-2026\submissions\jolly-lobster_v10.parquet  (344,841 rows)
+uploaded jolly-lobster_v10.parquet (1.10 MB) to s3://prc-2026-jolly-lobster/jolly-lobster_v10.parquet
+=== v10 exit 0 at 13:27:40Z ===
+lease released at 13:27:41Z

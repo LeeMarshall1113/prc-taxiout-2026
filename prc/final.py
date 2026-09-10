@@ -187,31 +187,20 @@ def main() -> None:
     # the target. Won 3/3 folds at -6.44s, and -16.22s on the Jan+Jul fold that
     # matches the ranking months. Zero where no flight plan exists, so those
     # rows reduce to the plain target and are routed to the dedicated model.
-    from .crossval import fit_baseline
+    from .crossval import prepare_residual
 
+    # One call, shared with crossval, so the filter-then-baseline order cannot
+    # drift again. v10 shipped the opposite order and lost 10.8s.
+    n_before = train.height
+    train_bulk, fit_y, base_rank = prepare_residual(
+        train, y_train, args, apply_to=rank)
+    if args.bulk_plan_only:
+        print(f"  --bulk-plan-only: global model fits {train_bulk.height:,} of "
+              f"{n_before:,} rows")
     if args.residual:
-        # Fit the baseline on training rows and apply it outward, exactly as the
-        # fold rig does. This previously called the raw-gap helper directly, so
-        # a --baseline choice would have been measured on folds and then
-        # silently NOT shipped -- the third time a validated setting could not
-        # reach a submission because the two paths had drifted apart.
-        make_base = fit_baseline(train, args.baseline)
-        base_train, base_rank = make_base(train), make_base(rank)
         print(f"  residual mode ({args.baseline}): baseline mean "
               f"{np.mean(base_rank):.1f}s on the ranking set")
-    else:
-        base_train = base_rank = 0.0
-    fit_y = y_train - base_train
-    if args.target == "log":
-        fit_y = np.log1p(np.maximum(fit_y, 0.0))
-    if args.bulk_plan_only:
-        keep = (train["has_flight_plan"] == 1).to_numpy()
-        train_bulk = train.filter(pl.col("has_flight_plan") == 1)
-        fit_y = fit_y[keep]
-        print(f"  --bulk-plan-only: global model fits {train_bulk.height:,} of "
-              f"{train.height:,} rows")
-    else:
-        train_bulk = train
+
     train_x = train_bulk.select(feats).to_pandas()
     for seed in range(args.seeds):
         model = CatBoostRegressor(
