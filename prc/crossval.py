@@ -608,7 +608,17 @@ def run_fold(frame, held: tuple[int, int], feats, cat_idx, args) -> dict:
     )
 
     if args.save_preds:
-        cols = {"y": y, "has_flight_plan": plan.astype(np.int8), "bagged": bagged}
+        # Carry the row id, the airport and the timestamp. Without them the file
+        # cannot be joined to anything and every later analysis has to guess at
+        # row order. Twice this week I estimated headroom against a strawman
+        # predictor -- a per-airport mean, then a raw timestamp gap -- because
+        # the model's own out-of-fold predictions were not joinable. Both
+        # estimates were near-zero in reality.
+        cols = {
+            "MVT_ID_mvt": test["MVT_ID_mvt"].to_numpy(),
+            "ADEP_mvt": test["ADEP_mvt"].to_numpy(),
+            "y": y, "has_flight_plan": plan.astype(np.int8), "bagged": bagged,
+        }
         cols.update({f"seed{i}": p for i, p in enumerate(preds)})
         path = Path(f"results/preds_{args.tag}_{held[0]}_{held[1]}.parquet")
         path.parent.mkdir(exist_ok=True)
