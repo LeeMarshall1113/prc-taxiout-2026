@@ -315,6 +315,43 @@ def _fit_one_noplan(sub, nfeats, ncats, args, weights=None):
     return _Smeared
 
 
+# Every setting fit_noplan honours. Kept explicit because the failure mode is
+# silence: a caller that hands over an object missing one of these gets the
+# getattr default and no warning, which is how --noplan-split-lirf came to parse
+# in final.py, print nothing, and never route a single row. The 5/6-fold win it
+# names could not reach a submission for two days.
+NOPLAN_SETTINGS = (
+    "noplan_iterations", "noplan_depth", "threads",
+    "noplan_routes", "noplan_split_lirf", "noplan_target",
+    "noplan_train", "noplan_weight", "sched_blend",
+)
+
+
+def require_noplan_settings(args) -> None:
+    missing = [k for k in NOPLAN_SETTINGS if not hasattr(args, k)]
+    if missing:
+        raise SystemExit(
+            "fit_noplan was handed an args object missing " + repr(missing) + "; "
+            "it would silently use defaults for them. Pass the real parsed args, "
+            "or add these to whatever stand-in is being used."
+        )
+
+
+def noplan_routes(args) -> list[str]:
+    """Which airports get their own no-plan model.
+
+    One reader for both --noplan-split-lirf (kept: it names a shipped result)
+    and --noplan-routes. crossval and final have drifted apart four times over
+    exactly this kind of setting, so they share this function rather than each
+    parsing the flags.
+    """
+    explicit = getattr(args, "noplan_routes", "") or ""
+    codes = [c.strip().upper() for c in explicit.split(",") if c.strip()]
+    if codes:
+        return codes
+    return ["LIRF"] if getattr(args, "noplan_split_lirf", False) else []
+
+
 class _RoutedNoPlan:
     """Two no-plan models, routed on whether the airport is LIRF.
 
@@ -329,17 +366,29 @@ class _RoutedNoPlan:
     are different questions. Routing is on an airport code fixed in advance, not
     chosen by score, so it is not the per-subgroup selection that cost a 2024
     team 2,066 -> 2,276.
+
+    Generalised on 2026-09-09 from a hard-coded LIRF flag to a list of airports,
+    each getting its own model. A floor analysis of the scored set found that
+    LFPG and LSZH no-plan predictions are dispersed at less than half the
+    residual sd achievable within tight strata (687 against a 1,370 floor at
+    LFPG; 522 against 1,075 at LSZH), while LIRF -- the one already routed --
+    is dispersed correctly. Routing is on airport codes fixed before the fit,
+    never chosen by score.
     """
 
-    def __init__(self, lirf, other, nfeats):
-        self._lirf, self._other, self._nfeats = lirf, other, nfeats
+    def __init__(self, models: dict, other, nfeats):
+        self._models, self._other, self._nfeats = models, other, nfeats
 
     def predict(self, frame):
         # frame is a pandas DataFrame carrying ADEP_mvt among nfeats
-        is_lirf = (frame["ADEP_mvt"] == "LIRF").to_numpy()
+        apt = frame["ADEP_mvt"].to_numpy()
         out = self._other.predict(frame)
-        if is_lirf.any() and self._lirf is not None:
-            out = np.where(is_lirf, self._lirf.predict(frame), out)
+        for code, model in self._models.items():
+            if model is None:
+                continue
+            m = apt == code
+            if m.any():
+                out = np.where(m, model.predict(frame), out)
         return out
 
 
@@ -364,6 +413,7 @@ def fit_noplan(train, feats, cat_features, args):
     which columns exist, fixed before measurement, and both halves scored
     together on folds not used for training.
     """
+    require_noplan_settings(args)
     from catboost import CatBoostRegressor, Pool
 
     mode = getattr(args, "noplan_train", "group")
@@ -398,13 +448,18 @@ def fit_noplan(train, feats, cat_features, args):
         model.fit(Pool(x, fit_y, cat_features=ncats, weight=weights))
         return fit_sched_blend(train, model, nfeats, ncats, args), nfeats
 
-    if getattr(args, "noplan_split_lirf", False):
-        lirf_rows = sub.filter(pl.col("ADEP_mvt") == "LIRF")
-        other_rows = sub.filter(pl.col("ADEP_mvt") != "LIRF")
-        lirf = _fit_one_noplan(lirf_rows, nfeats, ncats, args) if lirf_rows.height > 200 else None
+    routes = noplan_routes(args)
+    if routes:
+        models, sizes = {}, []
+        for code in routes:
+            rows = sub.filter(pl.col("ADEP_mvt") == code)
+            models[code] = (_fit_one_noplan(rows, nfeats, ncats, args)
+                            if rows.height > 200 else None)
+            sizes.append(f"{code} {rows.height:,}" + ("" if models[code] else " (too thin)"))
+        other_rows = sub.filter(~pl.col("ADEP_mvt").is_in(list(routes)))
         other = _fit_one_noplan(other_rows, nfeats, ncats, args)
-        print(f"    no-plan routed: LIRF {lirf_rows.height:,} rows, other {other_rows.height:,}")
-        return _RoutedNoPlan(lirf, other, nfeats), nfeats
+        print(f"    no-plan routed: {', '.join(sizes)}, other {other_rows.height:,}")
+        return _RoutedNoPlan(models, other, nfeats), nfeats
 
     model.fit(Pool(x, fit_y, cat_features=ncats, weight=weights))
     if not log_scale:
@@ -506,6 +561,10 @@ def main() -> None:
     parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-split-lirf", action="store_true")
+    parser.add_argument("--noplan-routes", default="",
+                        help="comma-separated ICAO codes that each get their own "
+                             "no-plan model, e.g. LIRF,LFPG,LSZH; overrides "
+                             "--noplan-split-lirf")
     parser.add_argument("--sched-blend", action="store_true",
                         help="blend no-plan predictions toward MVT-SCHED where substitution is likely")
     parser.add_argument("--noplan-target", choices=["raw", "log"], default="raw")

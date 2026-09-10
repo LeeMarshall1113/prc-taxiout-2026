@@ -38,6 +38,7 @@ CATEGORICAL = [
     "WK_TBL_CAT_flt",
     "FLIGHT_TYPE_flt",
     "FLIGHT_RULE_mvt",
+    "callsign_op",
     "airport_plan",
     "ref_level",
 ]
@@ -399,6 +400,21 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
         mvt.dt.ordinal_day().alias("doy"),
         (mvt.dt.weekday() >= 6).cast(pl.Int8).alias("is_weekend"),
         pl.col("AOBT_3_flt").is_not_null().cast(pl.Int8).alias("has_flight_plan"),
+        # Operator identity, recovered from the callsign.
+        #
+        # AIRCRAFT_OPERATOR_flt is 100% null for the no-flight-plan rows -- the
+        # group that carries most of our squared error has no operator column at
+        # all. But FLIGHT_mvt sits on the movement side and is 99.99% populated
+        # in training and 99.98% in ranking.parquet, and its leading letters are
+        # the operator: matched against AIRCRAFT_OPERATOR_flt on the 2,046,656
+        # rows where both exist, the prefix agrees with the modal operator
+        # 99.48% of the time. 99.88% of ranking prefixes were seen in training.
+        #
+        # Within the no-plan rows this is worth eta^2 0.069 on the residual
+        # after removing airport x aircraft type, so it is not a restatement of
+        # either. Handed to CatBoost raw, as a categorical: a hand-rolled target
+        # encoding is the mistake ref_taxi_s made twice.
+        pl.col("FLIGHT_mvt").str.extract(r"^([A-Z]{2,3})", 1).alias("callsign_op"),
         (mvt - pl.col("AOBT_3_flt")).dt.total_seconds().alias("gap_aobt"),
         (mvt - pl.col("EOBT_1_flt")).dt.total_seconds().alias("gap_eobt"),
         (mvt - pl.col("SCHED_TIME_UTC_mvt")).dt.total_seconds().alias("gap_sched"),

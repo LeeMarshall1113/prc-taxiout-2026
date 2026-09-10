@@ -43,6 +43,7 @@ DROP = [
     # measured but not yet fold-validated; opt in with --keep once they win
     "prev_stand_gap", "prev_stand_headway", "prev_rwy_gap",
     "mvt_sec_00",
+    "callsign_op",
     *_WEATHER,
 ]
 
@@ -104,6 +105,20 @@ def main() -> None:
     parser.add_argument("--residual", action="store_true")
     parser.add_argument("--baseline", choices=["aobt", "blend", "blend_apt"], default="aobt")
     parser.add_argument("--noplan-split-lirf", action="store_true")
+    parser.add_argument("--noplan-routes", default="",
+                        help="comma-separated ICAO codes that each get their own "
+                             "no-plan model, e.g. LIRF,LFPG,LSZH; overrides "
+                             "--noplan-split-lirf")
+    # The rest of what fit_noplan honours. crossval could measure all of these
+    # and final could ship none of them; require_noplan_settings now refuses to
+    # start rather than defaulting in silence.
+    parser.add_argument("--sched-blend", action="store_true",
+                        help="blend toward gap_sched by predicted probability "
+                             "that the off-block time is a schedule substitution")
+    parser.add_argument("--noplan-target", choices=["raw", "log"], default="raw")
+    parser.add_argument("--noplan-train", choices=["group", "all", "weighted"],
+                        default="group")
+    parser.add_argument("--noplan-weight", type=float, default=20.0)
     parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-iterations", type=int, default=600)
@@ -199,15 +214,19 @@ def main() -> None:
     bagged = np.vstack(preds).mean(axis=0)
 
     if args.noplan_model:
-        from .crossval import NOPLAN_DROP, fit_noplan
+        from .crossval import NOPLAN_DROP, fit_noplan, noplan_routes
 
-        class _A:  # fit_noplan reads its settings off an args-like object
-            noplan_iterations = args.noplan_iterations
-            noplan_depth = args.noplan_depth
-            threads = args.threads
-
+        # Pass the real args. This used to build a stand-in object restating
+        # three settings by hand, which meant fit_noplan's getattr defaults
+        # answered for everything else -- so --noplan-split-lirf parsed here,
+        # printed nothing, and never routed anything. The 5/6-fold, -10.20s
+        # routing win could not reach a submission, and would have looked like
+        # a failure to transfer. Anything fit_noplan learns to read in future
+        # now arrives on its own.
         cat_names = [c for c in CATEGORICAL if c not in dropped]
-        nmodel, nfeats = fit_noplan(train, feats, cat_names, _A)
+        nmodel, nfeats = fit_noplan(train, feats, cat_names, args)
+        if noplan_routes(args):
+            print(f"  no-plan routing: {', '.join(noplan_routes(args))}")
         npred = nmodel.predict(rank.select(nfeats).to_pandas())
         route = rank["has_flight_plan"].to_numpy() == 0
         print(f"  dedicated no-plan model: {len(nfeats)} features, routing {int(route.sum()):,} rows")
