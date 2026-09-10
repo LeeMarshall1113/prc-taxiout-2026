@@ -28,9 +28,17 @@ Train on full-year 2025 movements. Predict Jan + Jul 2026. REPORTED.
   707 of 734 submissions on the board are on the superseded set. VERIFIED.
   `prc.leaderboard` filters to one set and names which is in force.
 - **There is no private split.** The ranking set *is* the public leaderboard set.
-  Submissions appear unlimited: one team logged 542 in the first four days.
-  VERIFIED 2026-09-04. Consequence: the metric rewards leaderboard grinding, and
-  nothing external protects against fitting the ranking set.
+- **There IS a daily submission cap.** 3/day from 2026-09-03, raised to **5/day**
+  on 2026-09-07. Over the limit the result file returns
+  `DAILY_LIMIT_REACHED: n of n used today, resets at 00:00 UTC`. VERIFIED from
+  the organisers' Discord; supersedes the earlier "submissions appear unlimited"
+  reading, which was drawn from one team's 542-submission burst before the cap
+  existed. That burst was a script bug, acknowledged by its author.
+  The cap was introduced because RMSE feedback is **invertible**: for a single
+  changed row, `N(MSE' - MSE) = d^2 + 2d(p_k - y_k)` solves for the true label,
+  so one extra submission recovers one ground-truth value and a binary search
+  finds the highest-leverage rows in a few dozen queries. We do not do this and
+  should not; it is named here so nobody reinvents it thinking it is clever.
 
 ## Timeline
 
@@ -104,3 +112,106 @@ Submissions must therefore be named `jolly-lobster_v<N>.parquet`.
   individuals**. REPORTED from the challenge overview paper.
 - **2026 edition, as of 2026-09-04**: 256 teams registered, but only **37 with a
   scored submission**. VERIFIED. See `notes/2026-09-04-field-snapshot.md`.
+
+## From the organisers' Discord (`#prc-data-competition`, OpenSky Community)
+
+Exported 2026-09-10, 522 messages back to the channel's creation on 2024-11-08.
+`espinielli` is Enrico Spinielli (EUROCONTROL PRC, the organiser); `john_fitz_nz`
+runs the submission infrastructure. Everything below is quoted or paraphrased
+from them unless a participant is named.
+
+### Rulings that decide what is allowed
+
+- **Feature engineering from other movement rows is explicitly permitted.**
+  Asked directly whether a departure at time T may use trailing counts of
+  earlier movements: *"feature engineering is of course permitted, do whatever
+  makes sense to you with the provided data. Your model could take into account
+  what is occupied, what is coming..."* (2026-09-09). This clears our congestion
+  and sequence features.
+- **METAR is fine**; open-source data are allowed "if declared in the
+  documentation for the solution/repo" (2026-09-08).
+- **OSN state vectors are discouraged**, because "our ground truth is from
+  airport reported timestamps and not derived from on-board means, so
+  discrepancies with what flown would be there" (2026-09-03). **OPDI** is
+  permitted but "milestones for now do not cover off-block" (2026-09-06).
+- **No separate final phase planned**, "but we reserve the right to go for it."
+
+### The block-time artefact is public, and the organisers will not fix it
+
+Raised by `henri_59479` on **2026-09-03**, seven days before we thought we had
+found it independently. At least five teams have since posted measurements.
+The organisers' position:
+
+- *"Block time is what the airport provided: it should be filled with actual
+  because for SCHEDULE there is SCHED_TIME_UTC_mvt"* (2026-09-08).
+- *"We exported what we got without substitutions"* (2026-09-08) — so the
+  substitution happens upstream, in the airport's own reporting, not in the
+  export.
+- *"I do not know of recurring operational reasons for those outliers, but they
+  are there. Some could be linked to some specific events, others could just be
+  messy data from airport or NM"* (2026-09-08).
+- *"The decision about how to deal with strange/noisy/messy data is full part of
+  the challenge"* (2026-09-09). The rows stay, and they are scored.
+
+**Consequence for us:** this was never an edge. It explains how teams reached
+271-279 in three or four submissions.
+
+### `IOBT` / `EOBT` / `LOBT`, from the organiser
+
+*"IOBT is calculated from the flight plan ('I' = initial), EOBT is calculated
+from any messages/updates that have come after ('E' = estimated), and LOBT is
+the latest calculated value for Off-block ('L' = last). These come from
+operations: no post-ops adjustments."* And `AOBT_3_flt` is *"what NM knows from
+the flight once flown"*. `_mvt` columns are airport-reported and
+"~validated by EUROCONTROL"; `_flt` columns are Network Manager.
+
+### Why the evaluation set changed on 2026-09-04
+
+*"The submit dataset is incorrect for July: my fault... airports didn't report
+yet when I initially extracted the data"* (2026-09-03). July initially contained
+only EDDF, EGLL and EHAM. Reissued 2026-09-04 ~08:30Z with all ten, and **old
+submissions were removed from the ranking**. That is the 215,876 -> 344,841 jump.
+
+`javieriom` posted the calibration we never had: the same approach scored
+**278.38 on the old set and 326.60 on the new**, model unchanged.
+
+### The finding we did not have: `roma_no`'s 630 "neither" rows
+
+Posted 2026-09-08 and **reproduced here exactly**, every figure:
+
+On the Jan+Jul 2025 fold (344,419 departures) there are 981 rows with taxi over
+an hour. They split three ways:
+
+| class | n | |
+|---|---|---|
+| `BLOCK == SCHED` within 30s | 345 | the known artefact |
+| `+1 day` rollover | 6 | the known artefact |
+| **neither** | **630** | **not previously examined by us** |
+
+558 of the 630 carry an `AOBT_3_flt`. Their median target is **4,202s** while
+the median `MVT_TIME - AOBT_3_flt` is **1,264s** — the Network Manager sees an
+ordinary taxi where the airport reports over an hour. Median gap 3,055s, and
+only **8.6%** agree within 300s.
+
+**They hold 16.6% of the fold's squared error**, and unlike everything else we
+have chased they are *not* a Rome story: EGLL 234, LFPG 133, LIRF 122, EHAM 54.
+
+Measured here across all of 2025 (2,046 such rows), two structures stand out:
+
+- **Hour of day.** Rate per 10k departures is **107.4 at 00h** against ~10 for
+  the rest of the day, and 2.0 at 04h. A tenfold midnight spike.
+- **Airport.** EGLL 27.5, LTFM 20.6, LIRF 17.4, LFPG 14.2 per 10k, against
+  LEMD 0.0, LEBL 0.1, LSZH 1.5. A local reporting convention, not a fleet or
+  weather effect.
+- Month is mixed: February 33.0 and July 17.0 both elevated, March-May at
+  3.2-5.5. Not de-icing, or not only de-icing.
+
+`roma_no`'s hypotheses, unanswered by the organisers: return-to-stand, remote
+de-icing stamped as off-block, or a local convention on when the block event is
+recorded.
+
+**Why this matters for the model:** at serve time we see `gap_aobt` of ~1,264s
+and predict accordingly, while the truth is ~4,202s. The correction available is
+a posterior shift of `p * 2,832s` where `p` is the airport-by-hour rate — which
+is exactly the kind of interaction an oblivious tree must spend a whole level on.
+It is an independent argument for the `grow_policy` test already running.
