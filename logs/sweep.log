@@ -1,0 +1,79 @@
+=== sweep start 19:27:00Z ===
+3 folds x 9 configurations (~1.1 spurious 3/3 records expected by chance)
+scoring rmse on no-plan rows only; no global model is fitted
+
+fold (1, 7): 5,373 no-plan test rows
+    no-plan routed: LIRF 1,091, other 16,006
+    ctrl            1926.2   (134s)
+    no-plan routed: LIRF 1,091, other 16,006
+    l2_10           1890.4   (132s)
+    no-plan routed: LIRF 1,091, other 16,006
+    l2_30           1948.3   (137s)
+    no-plan routed: LIRF 1,091, other 16,006
+    depthwise       2020.7   (142s)
+    no-plan routed: LIRF 1,091, other 16,006
+    dw_leaf20       1912.8   (142s)
+    no-plan routed: LIRF 1,091, other 16,006
+    dw_leaf50       1874.5   (133s)
+    no-plan routed: LIRF 1,091, other 16,006
+    depth4          1866.3   (155s)
+    no-plan routed: LIRF 1,091, other 16,006
+    bag3            1909.2   (573s)
+    no-plan routed: LIRF 1,091, other 16,006
+    combo           1867.4   (373s)
+
+fold (3, 9): 3,547 no-plan test rows
+    no-plan routed: LIRF 1,261, other 17,662
+    ctrl            1048.3   (191s)
+    no-plan routed: LIRF 1,261, other 17,662
+    l2_10           1043.7   (168s)
+    no-plan routed: LIRF 1,261, other 17,662
+    l2_30           1095.4   (155s)
+    no-plan routed: LIRF 1,261, other 17,662
+    depthwise       1072.1   (149s)
+    no-plan routed: LIRF 1,261, other 17,662
+    dw_leaf20        975.1   (150s)
+    no-plan routed: LIRF 1,261, other 17,662
+    dw_leaf50        985.7   (101s)
+    no-plan routed: LIRF 1,261, other 17,662
+    depth4           989.1   (54s)
+    no-plan routed: LIRF 1,261, other 17,662
+    bag3            1039.0   (165s)
+    no-plan routed: LIRF 1,261, other 17,662
+    combo            959.1   (82s)
+
+fold (5, 11): 2,961 no-plan test rows
+    no-plan routed: LIRF 1,337, other 18,172
+    ctrl            1863.7   (49s)
+    no-plan routed: LIRF 1,337, other 18,172
+    l2_10           1890.6   (39s)
+    no-plan routed: LIRF 1,337, other 18,172
+    l2_30           1926.1   (35s)
+    no-plan routed: LIRF 1,337, other 18,172
+    depthwise       1881.6   (34s)
+    no-plan routed: LIRF 1,337, other 18,172
+    dw_leaf20       1860.7   (30s)
+    no-plan routed: LIRF 1,337, other 18,172
+    dw_leaf50       1879.0   (30s)
+    no-plan routed: LIRF 1,337, other 18,172
+    depth4          1867.2   (24s)
+    no-plan routed: LIRF 1,337, other 18,172
+    bag3            1886.8   (106s)
+    no-plan routed: LIRF 1,337, other 18,172
+    combo           1865.7   (74s)
+
+config              mean   vs ctrl   per-fold delta            wins
+combo             1564.0     -48.7      -58.8     -89.2      +2.0   2/3
+depth4            1574.2     -38.5      -59.8     -59.2      +3.5   2/3
+dw_leaf50         1579.7     -33.0      -51.6     -62.7     +15.3   2/3
+dw_leaf20         1582.9     -29.9      -13.4     -73.2      -3.0   3/3
+l2_10             1608.2      -4.5      -35.8      -4.6     +27.0   2/3
+bag3              1611.6      -1.1      -17.0      -9.3     +23.1   2/3
+ctrl              1612.7      +0.0       +0.0      +0.0      +0.0   0/3
+l2_30             1656.6     +43.9      +22.1     +47.1     +62.4   0/3
+depthwise         1658.2     +45.4      +94.5     +23.8     +18.0   0/3
+
+A win here is worth roughly a third as much on the board: the group is
+1.6% of rows, and -100s of no-plan RMSE is about -5s overall.
+wrote results/sweep_noplan.json
+=== sweep exit 0 at 20:26:19Z ===

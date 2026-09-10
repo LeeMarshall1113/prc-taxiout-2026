@@ -23,3 +23,15 @@ scoring 344,841 ranking rows
 0:	learn: 281.7722897	total: 1.32s	remaining: 55m 4s
 250:	learn: 220.6285612	total: 5m 41s	remaining: 51m
 500:	learn: 213.6689922	total: 10m 35s	remaining: 42m 15s
+750:	learn: 209.6789581	total: 15m 31s	remaining: 36m 10s
+1000:	learn: 206.7248995	total: 23m 35s	remaining: 35m 20s
+1250:	learn: 204.2636020	total: 33m 11s	remaining: 33m 8s
+1500:	learn: 202.2538041	total: 43m 48s	remaining: 29m 9s
+1750:	learn: 200.5795236	total: 53m 52s	remaining: 23m 2s
+2000:	learn: 199.0631372	total: 1h 1m 44s	remaining: 15m 23s
+2250:	learn: 197.7756720	total: 1h 6m 6s	remaining: 7m 18s
+2499:	learn: 196.5650486	total: 1h 9m 57s	remaining: 0us
+  seed 1 done
+0:	learn: 281.7765086	total: 885ms	remaining: 36m 50s
+250:	learn: 220.6921869	total: 3m 54s	remaining: 35m 2s
+500:	learn: 213.8063607	total: 7m 48s	remaining: 31m 9s
