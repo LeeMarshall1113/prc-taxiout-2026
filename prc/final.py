@@ -43,7 +43,7 @@ DROP = [
     # measured but not yet fold-validated; opt in with --keep once they win
     "prev_stand_gap", "prev_stand_headway", "prev_rwy_gap",
     "mvt_sec_00",
-    "callsign_op",
+    "callsign_op", "lobt_minus_aobt",
     "arr_sub_day", "arr_sub_stand",
     *_WEATHER,
 ]
@@ -104,7 +104,7 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=0.08)
     parser.add_argument("--threads", type=int, default=5)
     parser.add_argument("--residual", action="store_true")
-    parser.add_argument("--baseline", choices=["aobt", "blend", "blend_apt"], default="aobt")
+    parser.add_argument("--baseline", choices=["aobt", "blend", "blend_apt", "lobt_switch"], default="aobt")
     parser.add_argument("--noplan-split-lirf", action="store_true")
     parser.add_argument("--bulk-plan-only", action="store_true",
                         help="train the global model only on rows that have a "

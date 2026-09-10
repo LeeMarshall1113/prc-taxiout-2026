@@ -4,3 +4,8 @@
 [b_ctrl] 50 features, 6 folds, 2500 iterations
     baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
     per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,091, other 16,006
+    dedicated no-plan model: global   2941.5 ->   1892.1 on 5,373 rows | overall  437.12 ->  334.59
+  fold (1, 7): seed0   437.12  bagged(1)   334.59  gain +102.53  bulk  238.72  (1460s)
+    baseline blend: gap_aobt=+0.436  gap_eobt=+0.198  gap_lobt=+0.061  gap_sched=+0.003  const=+190.801
+    per-airport baselines fitted for 10 of 10 airports

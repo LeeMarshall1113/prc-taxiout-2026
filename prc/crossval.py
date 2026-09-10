@@ -130,6 +130,9 @@ def _baseline_matrix(frame: pl.DataFrame) -> np.ndarray:
     return np.column_stack(cols)
 
 
+LOBT_SWITCH_S = 4200.0
+
+
 def fit_baseline(train: pl.DataFrame, mode: str):
     """Return a callable giving the baseline to residualise against.
 
@@ -145,6 +148,25 @@ def fit_baseline(train: pl.DataFrame, mode: str):
     Fitted on training rows and applied outward, like prc.reference: the
     coefficients see no row they are later used to predict.
     """
+    if mode == "lobt_switch":
+        # Where the last-calculated off-block sits more than LOBT_SWITCH_S after
+        # the actual one, the airport's BLOCK_TIME tracks LOBT, so residualise
+        # against gap_lobt instead of gap_aobt.
+        #
+        # Measured as a pure arithmetic substitution on the raw gaps, with the
+        # threshold chosen out of fold each time (it converged on 4,200s for all
+        # six independently): wins 6/6, mean -18.79s, fold (1,7) 339.27 -> 304.15.
+        # 256 scored rows clear the threshold, at 7.4 per 10k against 5.5 per 10k
+        # in training, so the population is present in 2026 -- which is the check
+        # the LIRF pocket failed.
+        def _switch(f):
+            ga = np.nan_to_num(f["gap_aobt"].to_numpy().astype(float), nan=0.0,
+                               posinf=0.0, neginf=0.0)
+            gl = np.nan_to_num(f["gap_lobt"].to_numpy().astype(float), nan=0.0,
+                               posinf=0.0, neginf=0.0)
+            return np.where(gl - ga > LOBT_SWITCH_S, gl, ga)
+        return _switch
+
     if mode not in ("blend", "blend_apt"):
         return lambda f: np.nan_to_num(f["gap_aobt"].to_numpy().astype(float),
                                        nan=0.0, posinf=0.0, neginf=0.0)
@@ -605,7 +627,7 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--winsor", type=float, default=0.0)
     parser.add_argument("--drop", default="")
-    parser.add_argument("--baseline", choices=["aobt", "blend", "blend_apt"], default="aobt")
+    parser.add_argument("--baseline", choices=["aobt", "blend", "blend_apt", "lobt_switch"], default="aobt")
     parser.add_argument("--residual", action="store_true",
                         help="model the correction to the NM baseline, not the target")
     parser.add_argument("--loss", default="RMSE", help='e.g. "Huber:delta=2000"')

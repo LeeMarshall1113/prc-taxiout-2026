@@ -55,6 +55,7 @@ NUMERIC = [
     "gap_eobt",
     "gap_sched",
     "gap_lobt",
+    "lobt_minus_aobt",
     "dep_delay",
     "sched_vs_eobt",
     "mvt_sec_00",
@@ -490,6 +491,21 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
         (mvt - pl.col("EOBT_1_flt")).dt.total_seconds().alias("gap_eobt"),
         (mvt - pl.col("SCHED_TIME_UTC_mvt")).dt.total_seconds().alias("gap_sched"),
         (mvt - pl.col("LOBT_flt")).dt.total_seconds().alias("gap_lobt"),
+        # How far the LAST-CALCULATED off-block sits from the ACTUAL one.
+        #
+        # Both are Network Manager fields and both survive into ranking.parquet
+        # (1.53% null, the same rows). Where they disagree by more than an hour,
+        # the airport's own BLOCK_TIME tracks LOBT rather than AOBT -- so the
+        # target follows gap_lobt, not gap_aobt. On the 630 "neither" rows of
+        # fold (1,7) the medians are: target 4,202s, gap_lobt 4,381s,
+        # gap_aobt 1,384s, and the correlation with the target is 0.618 for
+        # gap_lobt against -0.061 for gap_aobt.
+        #
+        # A tree cannot form this difference itself -- it can only threshold each
+        # column separately -- so handing it over explicitly is not redundant
+        # with having both gaps present.
+        ((mvt - pl.col("LOBT_flt")) - (mvt - pl.col("AOBT_3_flt")))
+            .dt.total_seconds().alias("lobt_minus_aobt"),
         (pl.col("AOBT_3_flt") - pl.col("EOBT_1_flt")).dt.total_seconds().alias("dep_delay"),
         (pl.col("SCHED_TIME_UTC_mvt") - pl.col("EOBT_1_flt")).dt.total_seconds().alias("sched_vs_eobt"),
         # A sensor reading has uniform seconds; a hand-entered or schedule-copied
