@@ -37,3 +37,6 @@ scoring 344,841 ranking rows
 0:	learn: 460.9923643	total: 2.11s	remaining: 1h 27m 48s
 250:	learn: 275.7523441	total: 6m 29s	remaining: 58m 10s
 500:	learn: 251.6475715	total: 12m 57s	remaining: 51m 41s
+750:	learn: 239.8080480	total: 18m 18s	remaining: 42m 39s
+1000:	learn: 231.7432329	total: 23m 25s	remaining: 35m 4s
+1250:	learn: 225.8582305	total: 28m 9s	remaining: 28m 7s
