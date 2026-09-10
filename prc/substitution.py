@@ -50,6 +50,7 @@ FEATURES = [
     "STAND_mvt", "RUNWAY_mvt", "AIRCRAFT_TYPE_mvt", "AIRCRAFT_OPERATOR_flt",
     "hour", "minute_of_day", "dow", "month", "doy", "is_weekend",
     "dep_30min", "arr_30min",
+    "arr_sub_day", "arr_sub_stand",
 ]
 TOL = 60.0            # a substitution matches SCHED to within a minute
 ROLLOVER_MIN = 40000  # the 55,900s gap in the sorted values sits well below this
@@ -57,7 +58,7 @@ ROLLOVER_MIN = 40000  # the 55,900s gap in the sorted values sits well below thi
 
 def label(frame: pl.DataFrame) -> np.ndarray:
     y = frame[TARGET].to_numpy().astype(float)
-    gs = np.nan_to_num(frame["gap_sched"].to_numpy(dtype=float), nan=1e18)
+    gs = np.nan_to_num(frame["gap_sched"].to_numpy().astype(float), nan=1e18)
     return (np.abs(y - gs) <= TOL).astype(int)
 
 
@@ -123,8 +124,22 @@ def main() -> None:
     args = ap.parse_args()
 
     ensure_dirs()
-    frame = load_training_features()
-    print(f"loaded {frame.height:,} training rows")
+    # Load only what this module reads. The full cached matrix is 58 columns and
+    # several GB in pandas; this needs 18, which keeps the job small enough to
+    # run beside a training run without taking a lease of its own.
+    want = sorted({*FEATURES, TARGET, "gap_sched", "month"})
+    cache = INTERIM_DIR / "train_features.parquet"
+    if cache.exists():
+        have = set(pl.scan_parquet(cache).collect_schema().names())
+        if set(want) <= have:
+            frame = pl.read_parquet(cache, columns=want)
+            print(f"loaded {frame.height:,} rows x {frame.width} columns from cache")
+        else:
+            print(f"cache missing {sorted(set(want)-have)} -- full rebuild")
+            frame = load_training_features()
+    else:
+        frame = load_training_features()
+    print(f"training rows {frame.height:,}")
 
     pocket = (pl.col("ADEP_mvt") == "LIRF") & (pl.col("has_flight_plan") == 0)
     folds = [int(f) for f in args.folds.split(",") if f.strip()]
@@ -140,7 +155,26 @@ def main() -> None:
         te_pocket = te.filter(pocket & (pl.col("gap_sched") >= args.min_gap))
         if te_pocket.height == 0:
             continue
-        p = clf.predict_proba(te_pocket.select(feats).to_pandas())[:, 1]
+        p_raw = clf.predict_proba(te_pocket.select(feats).to_pandas())[:, 1]
+
+        # Calibrate ON THE POCKET, because that is where the model is applied
+        # and it is not the population it was trained on: substitution runs at
+        # 9.6% across all departures and ~59% inside the pocket. A classifier
+        # trained on the wide set has the ranking but not the base rate, and
+        # under squared loss with mixture components 85,000s apart a
+        # systematically low p is expensive -- which is exactly how an AUC-0.87
+        # classifier lost to a five-number band table on the first run.
+        tr_pocket = tr.filter(pocket & (pl.col("gap_sched") >= args.min_gap))
+        p_fit = clf.predict_proba(tr_pocket.select(feats).to_pandas())[:, 1]
+        ty2 = tr_pocket[TARGET].to_numpy().astype(float)
+        tg2 = tr_pocket["gap_sched"].to_numpy().astype(float)
+        truth_fit = (np.abs(ty2 - tg2) <= TOL).astype(float)
+        from sklearn.isotonic import IsotonicRegression  # noqa: PLC0415
+        iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        iso.fit(p_fit, truth_fit)
+        p = iso.predict(p_raw)
+        print(f"  calibration: raw mean p {p_raw.mean():.3f} -> {p.mean():.3f}; "
+              f"train-pocket actual rate {truth_fit.mean():.3f}")
 
         # the same rows under the BAND rate, which is what prc.pocket ships
         band_p = np.zeros(len(p))
@@ -154,10 +188,33 @@ def main() -> None:
                 band_p[(gs >= lo) & (gs < hi)] = ts[m25].mean()
 
         sse_clf, n = pocket_sse(te_pocket, p, bands)
+        sse_raw, _ = pocket_sse(te_pocket, p_raw, bands)
+
+        # Rollover rows -- BLOCK dated a day early, y ~ 87,400 -- are 12 in the
+        # whole of 2025 and carry 39.6% of the pocket's remaining error. Nothing
+        # can learn them from 12 examples, and a classifier that guesses at them
+        # can give back everything it wins elsewhere. So report the split, and
+        # test a variant that uses the classifier ONLY where rollovers are
+        # negligible (1 in 500 below 14,400s) and the band table above.
+        yv = te_pocket[TARGET].to_numpy().astype(float)
+        gv = te_pocket["gap_sched"].to_numpy().astype(float)
+        is_R = (np.abs(yv - gv) > TOL) & (yv > 40000)
+        low = gv < 14400
+        p_mixed = np.where(low, p, band_p)
+        sse_mixed, _ = pocket_sse(te_pocket, p_mixed, bands)
+
+        def part(pp, mask):
+            sse, _ = pocket_sse(te_pocket.filter(pl.Series(mask)), pp[mask], bands)
+            return sse
+        print(f"  rollover rows in this fold: {int(is_R.sum())} of {len(yv)}")
+        if (~is_R).any():
+            print(f"  EXCLUDING rollovers -- band {part(band_p, ~is_R):.3e}  "
+                  f"clf {part(p, ~is_R):.3e}  oracle {part(oracle_p if False else band_p, ~is_R):.3e}")
+        print(f"  classifier below 14,400s only, band above: SSE {sse_mixed:.4e}")
         sse_band, _ = pocket_sse(te_pocket, band_p, bands)
-        y = te_pocket[TARGET].to_numpy().astype(float)
-        oracle_p = (np.abs(y - gs) <= TOL).astype(float)
+        oracle_p = (np.abs(yv - gv) <= TOL).astype(float)
         sse_orc, _ = pocket_sse(te_pocket, oracle_p, bands)
+        y = yv
 
         from sklearn.metrics import roc_auc_score  # noqa: PLC0415
         truth = (np.abs(y - gs) <= TOL).astype(int)
@@ -167,6 +224,7 @@ def main() -> None:
         rows.append((test_months, n, auc, sse_band, sse_clf, sse_orc, captured))
         print(f"\nfold {test_months}: {n} pocket rows, AUC {auc:.4f}")
         print(f"  band rate  SSE {sse_band:.4e}")
+        print(f"  raw clf    SSE {sse_raw:.4e}   (uncalibrated)")
         print(f"  classifier SSE {sse_clf:.4e}   captured {captured*100:5.1f}% of the gap")
         print(f"  oracle     SSE {sse_orc:.4e}")
 

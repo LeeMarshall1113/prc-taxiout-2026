@@ -44,6 +44,7 @@ DROP = [
     "prev_stand_gap", "prev_stand_headway", "prev_rwy_gap",
     "mvt_sec_00",
     "callsign_op",
+    "arr_sub_day", "arr_sub_stand",
     *_WEATHER,
 ]
 

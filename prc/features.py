@@ -58,6 +58,8 @@ NUMERIC = [
     "dep_delay",
     "sched_vs_eobt",
     "mvt_sec_00",
+    "arr_sub_day",
+    "arr_sub_stand",
     "dep_30min",
     "arr_30min",
     "dep_60min",
@@ -374,12 +376,81 @@ def _congestion(frame: pl.DataFrame) -> dict[str, np.ndarray]:
     return out
 
 
+def _arrival_substitution_tables(frame: pl.DataFrame):
+    """How often the airport's ARRIVALS that day had a substituted block time.
+
+    The competition withholds BLOCK_TIME for departures -- it is the target's
+    denominator -- but leaves the arrival side fully populated, in training AND
+    in ranking.parquet. So the same failure we are trying to detect on a
+    departure is directly OBSERVABLE on the arrivals beside it: when the
+    airport's off-block sensing is down, arrivals get SCHED written into BLOCK
+    too, and we can see it.
+
+    LIRF arrivals run 12.1% substituted in 2025 and 11.7% in the scored 2026
+    file, so the signal is stable across the year gap.
+
+    This is the one input to the substitution classifier that is not a function
+    of gap_sched. A classifier built on gap_sched alone only ties a five-number
+    table built on gap_sched, which is what the first run measured.
+
+    Scoped by calendar DATE, so a training month and the two-month ranking frame
+    give the same answer for the same day -- no frame-composition hazard.
+    """
+    # NOTE: must be called on the FULL frame, before build() drops arrivals.
+    arr = frame.filter(pl.col("PHASE_mvt") == "ARR").select(
+        pl.col("ADES_mvt").alias("_apt"),
+        pl.col("STAND_mvt").alias("_stand"),
+        pl.col("MVT_TIME_UTC_mvt").dt.date().alias("_date"),
+        (
+            (pl.col("BLOCK_TIME_UTC_mvt") - pl.col("SCHED_TIME_UTC_mvt"))
+            .dt.total_seconds().abs() <= 60
+        ).cast(pl.Float64).alias("_sub"),
+    )
+    if arr.height == 0:
+        return None, None
+
+    day = arr.group_by("_apt", "_date").agg(
+        pl.col("_sub").mean().alias("arr_sub_day"), pl.len().alias("_dn")
+    )
+    # Per stand as well, shrunk toward the day rate: a stand may see only a
+    # handful of arrivals in a day, and an unshrunk 0/1 would be noise.
+    PRIOR = 8.0
+    stand = arr.group_by("_apt", "_stand", "_date").agg(
+        pl.col("_sub").mean().alias("_sr"), pl.len().alias("_sn")
+    ).join(day, on=["_apt", "_date"], how="left").with_columns(
+        ((pl.col("_sr") * pl.col("_sn") + pl.col("arr_sub_day") * PRIOR)
+         / (pl.col("_sn") + PRIOR)).alias("arr_sub_stand")
+    ).select("_apt", "_stand", "_date", "arr_sub_stand")
+
+    return day.drop("_dn"), stand
+
+
+def _join_arrival_substitution(frame: pl.DataFrame, day, stand) -> pl.DataFrame:
+    """Attach the arrival tables to the (departures-only) feature frame."""
+    if day is None:
+        return frame.with_columns(
+            pl.lit(None, dtype=pl.Float64).alias("arr_sub_day"),
+            pl.lit(None, dtype=pl.Float64).alias("arr_sub_stand"),
+        )
+    return (
+        frame.with_columns(
+            pl.col("ADEP_mvt").alias("_apt"),
+            pl.col("STAND_mvt").alias("_stand"),
+            pl.col("MVT_TIME_UTC_mvt").dt.date().alias("_date"),
+        )
+        .join(day, on=["_apt", "_date"], how="left")
+        .join(stand, on=["_apt", "_stand", "_date"], how="left")
+        .drop("_apt", "_stand", "_date")
+    )
+
+
 def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
     """Turn a raw movements frame into the model matrix (departures only).
 
     ``frame`` must contain both phases: arrivals are dropped from the output but
     are needed first to compute arrival pressure.
     """
+    arr_day, arr_stand = _arrival_substitution_tables(frame)
     congestion = _congestion(frame)
     congestion.update(_wave2(frame))
     congestion.update(_runway_config(frame))
@@ -471,6 +542,8 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
         pair, on=["ADEP_mvt", "STAND_mvt", "RUNWAY_mvt", "_ym"], how="left"
     ).drop("_ym")
 
+
+    frame = _join_arrival_substitution(frame, arr_day, arr_stand)
 
     built = [f for f in FEATURES if f not in REFERENCE]
     keep = ["MVT_ID_mvt", "ADEP_mvt", "STAND_mvt", "RUNWAY_mvt", *built]
