@@ -135,6 +135,18 @@ def main() -> None:
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-iterations", type=int, default=600)
     parser.add_argument("--noplan-depth", type=int, default=6)
+    parser.add_argument("--noplan-l2", type=float, default=None,
+                        help="l2_leaf_reg for the no-plan specialist; CatBoost "
+                             "defaults to 3.0 and this has never been varied")
+    parser.add_argument("--noplan-min-data", type=int, default=0,
+                        help="min_data_in_leaf; CatBoost defaults to 1, which on "
+                             "a ~1,200-row specialist allows single-row leaves")
+    parser.add_argument("--noplan-rsm", type=float, default=None)
+    parser.add_argument("--noplan-grow-policy",
+                        choices=["SymmetricTree", "Depthwise", "Lossguide"],
+                        default="SymmetricTree")
+    parser.add_argument("--noplan-seeds", type=int, default=1,
+                        help="bag the specialist over this many seeds")
     parser.add_argument("--keep", default="",
                         help="comma-separated features to restore to the drop list, "
                              "e.g. the wave-2 columns if they win on folds")

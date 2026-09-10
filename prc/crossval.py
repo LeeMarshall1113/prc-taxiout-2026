@@ -364,6 +364,16 @@ def fit_sched_blend(train, model, nfeats, ncats, args):
     return _SchedBlend(model, clf, nfeats, cf)
 
 
+class _Bagged:
+    """Mean of several fits differing only in seed."""
+
+    def __init__(self, models):
+        self._models = models
+
+    def predict(self, frame):
+        return np.mean([m.predict(frame) for m in self._models], axis=0)
+
+
 def _fit_one_noplan(sub, nfeats, ncats, args, weights=None):
     from catboost import CatBoostRegressor, Pool
 
@@ -371,12 +381,52 @@ def _fit_one_noplan(sub, nfeats, ncats, args, weights=None):
     log_scale = getattr(args, "noplan_target", "raw") == "log"
     fit_y = np.log1p(np.maximum(y, 0.0)) if log_scale else y
     x = sub.select(nfeats).to_pandas()
-    model = CatBoostRegressor(
+    # Variance knobs, all at CatBoost defaults until now. A residual autopsy on
+    # real out-of-fold predictions found this group's error is 92% instability
+    # (seeds disagree) against 7% bias (seeds agree and are wrong), with
+    # log-corr(seed variance, squared error) 0.37-0.44 across all three folds --
+    # two to three times the bulk's. The 2026-09-06 grid varied only depth,
+    # iterations and feature set, never regularisation, and it ran before
+    # routing existed, so it tuned ONE model on 22,470 rows. LIRF's specialist
+    # now fits about 1,200, with min_data_in_leaf at CatBoost's default of 1.
+    kw = dict(
         iterations=args.noplan_iterations, depth=getattr(args, "noplan_depth", 6),
         learning_rate=0.05, loss_function="RMSE",
-        thread_count=args.threads, random_seed=1113, verbose=False,
+        thread_count=args.threads, verbose=False,
     )
-    model.fit(Pool(x, fit_y, cat_features=ncats, weight=weights))
+    l2 = getattr(args, "noplan_l2", None)
+    if l2 is not None:
+        kw["l2_leaf_reg"] = l2
+    # min_data_in_leaf is IGNORED under CatBoost's default SymmetricTree policy
+    # -- verified: minleaf_20 returned a bit-identical 1926.2 to the control on
+    # fold (1,7). It needs Depthwise or Lossguide. That pairing is worth having
+    # for a ~1,200-row specialist even though Lossguide lost 0/3 on the GLOBAL
+    # model, because the constraint that hurt 2M rows is the one that helps
+    # 1,200.
+    grow = getattr(args, "noplan_grow_policy", "SymmetricTree")
+    if grow != "SymmetricTree":
+        kw["grow_policy"] = grow
+    mdl = getattr(args, "noplan_min_data", None)
+    if mdl:
+        if grow == "SymmetricTree":
+            raise SystemExit(
+                "--noplan-min-data needs --noplan-grow-policy Depthwise or "
+                "Lossguide; CatBoost silently ignores it on symmetric trees")
+        kw["min_data_in_leaf"] = mdl
+    rsm = getattr(args, "noplan_rsm", None)
+    if rsm:
+        kw["rsm"] = rsm
+
+    # Bag the specialist. Instability is what dominates here, and averaging is
+    # the direct answer to variance -- but the same autopsy bounds 3 -> infinity
+    # seeds at about 10s on this group, so this is a small lever, not the lever.
+    nseeds = max(int(getattr(args, "noplan_seeds", 1) or 1), 1)
+    models = []
+    for k in range(nseeds):
+        m = CatBoostRegressor(random_seed=1113 + k * 977, **kw)
+        m.fit(Pool(x, fit_y, cat_features=ncats, weight=weights))
+        models.append(m)
+    model = models[0] if nseeds == 1 else _Bagged(models)
     if not log_scale:
         return model
     smear = float(np.mean(np.exp(fit_y - model.predict(x))))
@@ -399,6 +449,8 @@ NOPLAN_SETTINGS = (
     "noplan_iterations", "noplan_depth", "threads",
     "noplan_routes", "noplan_split_lirf", "noplan_target",
     "noplan_train", "noplan_weight", "sched_blend",
+    "noplan_l2", "noplan_min_data", "noplan_rsm", "noplan_seeds",
+    "noplan_grow_policy",
 )
 
 
@@ -664,6 +716,18 @@ def main() -> None:
     # getattr default instead. Harmless until require_noplan_settings made the
     # mismatch fatal -- which is the guard doing its job, one caller late.
     parser.add_argument("--noplan-depth", type=int, default=6)
+    parser.add_argument("--noplan-l2", type=float, default=None,
+                        help="l2_leaf_reg for the no-plan specialist; CatBoost "
+                             "defaults to 3.0 and this has never been varied")
+    parser.add_argument("--noplan-min-data", type=int, default=0,
+                        help="min_data_in_leaf; CatBoost defaults to 1, which on "
+                             "a ~1,200-row specialist allows single-row leaves")
+    parser.add_argument("--noplan-rsm", type=float, default=None)
+    parser.add_argument("--noplan-grow-policy",
+                        choices=["SymmetricTree", "Depthwise", "Lossguide"],
+                        default="SymmetricTree")
+    parser.add_argument("--noplan-seeds", type=int, default=1,
+                        help="bag the specialist over this many seeds")
     parser.add_argument("--grow-policy",
                         choices=["SymmetricTree", "Depthwise", "Lossguide"],
                         default="SymmetricTree",

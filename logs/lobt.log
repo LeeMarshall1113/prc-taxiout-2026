@@ -30,3 +30,12 @@ appended to results\crossval.jsonl
     no-plan routed: LIRF 1,261, other 17,662
     dedicated no-plan model: global   2140.1 ->   1184.9 on 3,547 rows | overall  301.60 ->  242.14
   fold (3, 9): seed0   301.60  bagged(1)   242.14  gain +59.47  bulk  211.64  (2481s)
+    no-plan routed: LIRF 1,337, other 18,172
+    dedicated no-plan model: global   2545.1 ->   1954.5 on 2,961 rows | overall  312.03 ->  273.36
+  fold (5, 11): seed0   312.03  bagged(1)   273.36  gain +38.68  bulk  206.25  (2674s)
+
+  mean RMSE   284.52  sd  48.93  range 242.1..338.1
+  mean bulk   220.52  sd  20.22
+appended to results\crossval.jsonl
+=== lobt arms exit 0 at 18:55:22Z ===
+lease released at 18:55:22Z

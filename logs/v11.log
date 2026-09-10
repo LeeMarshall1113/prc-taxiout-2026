@@ -9,3 +9,17 @@ scoring 344,841 ranking rows
   --bulk-plan-only: global model fits 2,062,577 of 2,085,047 rows
   residual mode (blend_apt): baseline mean 999.1s on the ranking set
 0:	learn: 281.7908441	total: 1.08s	remaining: 44m 57s
+250:	learn: 221.2359741	total: 4m 22s	remaining: 39m 8s
+500:	learn: 213.8227250	total: 8m 40s	remaining: 34m 37s
+750:	learn: 209.9697400	total: 13m 4s	remaining: 30m 27s
+1000:	learn: 207.0027501	total: 17m 29s	remaining: 26m 11s
+1250:	learn: 204.5264966	total: 21m 50s	remaining: 21m 48s
+1500:	learn: 202.5413353	total: 26m 24s	remaining: 17m 34s
+1750:	learn: 200.8654806	total: 31m 8s	remaining: 13m 19s
+2000:	learn: 199.3420709	total: 36m 41s	remaining: 9m 9s
+2250:	learn: 198.0515399	total: 42m 39s	remaining: 4m 43s
+2499:	learn: 196.9019268	total: 48m 48s	remaining: 0us
+  seed 0 done
+0:	learn: 281.7722897	total: 1.32s	remaining: 55m 4s
+250:	learn: 220.6285612	total: 5m 41s	remaining: 51m
+500:	learn: 213.6689922	total: 10m 35s	remaining: 42m 15s
