@@ -1,0 +1,6 @@
+=== campaign start 13:40:19Z ===
+
+########## b_ctrl ##########
+[b_ctrl] 50 features, 6 folds, 2500 iterations
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
+    per-airport baselines fitted for 10 of 10 airports
