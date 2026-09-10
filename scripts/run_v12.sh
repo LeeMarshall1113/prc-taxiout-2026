@@ -41,7 +41,7 @@ cd "$REPO"
 mkdir -p logs
 PY=./.venv/Scripts/python.exe
 
-$PY "$BROKER" wait "$LEASE" --timeout 7200 || {
+$PY "$BROKER" wait "$LEASE" --timeout 43200 || {
     echo "[wait] not granted" | tee -a "$LOG"; exit 1; }
 rm -f "$REPO/.yield-requested"
 $PY "$BROKER" heartbeat "$LEASE" >/dev/null 2>&1
