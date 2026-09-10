@@ -124,6 +124,13 @@ def main() -> None:
     parser.add_argument("--noplan-train", choices=["group", "all", "weighted"],
                         default="group")
     parser.add_argument("--noplan-weight", type=float, default=20.0)
+    parser.add_argument("--grow-policy",
+                        choices=["SymmetricTree", "Depthwise", "Lossguide"],
+                        default="SymmetricTree",
+                        help="CatBoost tree growth; the default grows oblivious "
+                             "trees, which cannot spend a split on one airport")
+    parser.add_argument("--max-leaves", type=int, default=64,
+                        help="Lossguide only")
     parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-iterations", type=int, default=600)
@@ -211,6 +218,9 @@ def main() -> None:
             iterations=args.iterations, depth=args.depth, learning_rate=args.lr,
             loss_function=args.loss, thread_count=args.threads,
             l2_leaf_reg=args.l2, one_hot_max_size=args.one_hot_max_size,
+            **({} if args.grow_policy == "SymmetricTree" else
+               {"grow_policy": args.grow_policy,
+                **({"max_leaves": args.max_leaves} if args.grow_policy == "Lossguide" else {})}),
             random_seed=1113 + seed * 977, verbose=250,
         )
         model.fit(Pool(train_x, fit_y, cat_features=cat_idx))

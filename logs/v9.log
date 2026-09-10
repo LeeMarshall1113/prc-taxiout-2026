@@ -76,3 +76,77 @@ fit_noplan was handed an args object missing ['noplan_depth']; it would silently
 [v9_bulk] 52 features, 6 folds, 2500 iterations
     baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
     per-airport baselines fitted for 10 of 10 airports
+./scripts/run_v9b.sh: line 57: 11588 Killed                  $PY -u -m prc.crossval --tag "$tag" --folds 1,3,5 --iterations 2500 --threads 5 --seeds 1 --noplan-model --residual --baseline blend_apt --drop "$drop" --noplan-routes "$routes" $extra
+[v9] v9_base FAILED
+
+########## v9_bulk ##########
+./scripts/run_v9.sh: line 55: 11729 Killed                  $PY -u -m prc.crossval --tag "$tag" --folds "$FOLDS" --iterations 2500 --threads 5 --seeds 1 --noplan-model --residual --baseline blend_apt "$@"
+[v9] v9_bulk FAILED
+
+########## v9_route ##########
+[v9_bulk] 52 features, 6 folds, 2500 iterations
+[v9_route] 53 features, 6 folds, 2500 iterations
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
+    per-airport baselines fitted for 10 of 10 airports
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,091, other 16,006
+    dedicated no-plan model: global   4053.3 ->   1932.9 on 5,373 rows | overall  557.58 ->  335.97
+  fold (1, 7): seed0   557.58  bagged(1)   335.97  gain +221.61  bulk  235.50  (2943s)
+    baseline blend: gap_aobt=+0.436  gap_eobt=+0.198  gap_lobt=+0.061  gap_sched=+0.003  const=+190.801
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,091, LFPG 2,893, LSZH 1,767, other 11,346
+    dedicated no-plan model: global   2801.1 ->   1927.2 on 5,373 rows | overall  422.79 ->  338.07
+  fold (1, 7): seed0   422.79  bagged(1)   338.07  gain +84.72  bulk  239.26  (3490s)
+    baseline blend: gap_aobt=+0.436  gap_eobt=+0.198  gap_lobt=+0.061  gap_sched=+0.003  const=+190.801
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,261, other 17,662
+    dedicated no-plan model: global   4032.2 ->   1131.0 on 3,547 rows | overall  455.79 ->  235.03
+  fold (3, 9): seed0   455.79  bagged(1)   235.03  gain +220.76  bulk  206.52  (2801s)
+    baseline blend: gap_aobt=+0.432  gap_eobt=+0.193  gap_lobt=+0.063  gap_sched=+0.003  const=+197.073
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,261, LFPG 3,278, LSZH 1,922, other 12,462
+    dedicated no-plan model: global   2000.8 ->   1150.7 on 3,547 rows | overall  288.83 ->  236.95
+  fold (3, 9): seed0   288.83  bagged(1)   236.95  gain +51.88  bulk  207.62  (3306s)
+    baseline blend: gap_aobt=+0.432  gap_eobt=+0.193  gap_lobt=+0.063  gap_sched=+0.003  const=+197.073
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,337, other 18,172
+    dedicated no-plan model: global   4203.3 ->   1946.4 on 2,961 rows | overall  436.27 ->  268.47
+  fold (5, 11): seed0   436.27  bagged(1)   268.47  gain +167.80  bulk  200.36  (2773s)
+
+  mean RMSE   279.82  sd  51.42  range 235.0..336.0
+  mean bulk   214.12  sd  18.76
+appended to results\crossval.jsonl
+
+########## v9_route ##########
+[v9_route] 53 features, 6 folds, 2500 iterations
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.202  gap_lobt=+0.053  gap_sched=+0.002  const=+203.566
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,337, LFPG 3,136, LSZH 1,967, other 13,069
+    dedicated no-plan model: global   2559.8 ->   1871.7 on 2,961 rows | overall  309.87 ->  264.65
+  fold (5, 11): seed0   309.87  bagged(1)   264.65  gain +45.22  bulk  201.34  (3319s)
+
+  mean RMSE   279.89  sd  52.25  range 237.0..338.1
+  mean bulk   216.07  sd  20.32
+appended to results\crossval.jsonl
+=== v9 exit 0 at 07:48:05Z ===
+lease released at 07:48:05Z
+    no-plan routed: LIRF 1,091, LFPG 2,893, LSZH 1,767, other 11,346
+    dedicated no-plan model: global   2801.1 ->   1927.2 on 5,373 rows | overall  422.79 ->  338.07
+  fold (1, 7): seed0   422.79  bagged(1)   338.07  gain +84.72  bulk  239.26  (3188s)
+    baseline blend: gap_aobt=+0.436  gap_eobt=+0.198  gap_lobt=+0.061  gap_sched=+0.003  const=+190.801
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,261, LFPG 3,278, LSZH 1,922, other 12,462
+    dedicated no-plan model: global   2000.8 ->   1150.7 on 3,547 rows | overall  288.83 ->  236.95
+  fold (3, 9): seed0   288.83  bagged(1)   236.95  gain +51.88  bulk  207.62  (3415s)
+    baseline blend: gap_aobt=+0.432  gap_eobt=+0.193  gap_lobt=+0.063  gap_sched=+0.003  const=+197.073
+    per-airport baselines fitted for 10 of 10 airports
+    no-plan routed: LIRF 1,337, LFPG 3,136, LSZH 1,967, other 13,069
+    dedicated no-plan model: global   2559.8 ->   1871.7 on 2,961 rows | overall  309.87 ->  264.65
+  fold (5, 11): seed0   309.87  bagged(1)   264.65  gain +45.22  bulk  201.34  (3400s)
+
+  mean RMSE   279.89  sd  52.25  range 237.0..338.1
+  mean bulk   216.07  sd  20.32
+appended to results\crossval.jsonl
+=== v9b exit 0 at 10:08:39Z ===
+lease released at 10:08:39Z

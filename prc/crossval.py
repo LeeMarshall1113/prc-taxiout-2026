@@ -94,6 +94,22 @@ def _catboost_kwargs(args) -> dict:
         iterations=args.iterations, depth=args.depth, learning_rate=args.lr,
         l2_leaf_reg=args.l2, thread_count=args.threads, random_seed=1113, verbose=False,
     )
+    # CatBoost grows OBLIVIOUS trees by default: every split at a given depth
+    # uses the same feature for every node. That is why it is fast, and it is a
+    # real constraint on representing per-airport structure -- LIRF's bulk RMSE
+    # is 404 against 176-261 everywhere else, and an airport-specific
+    # interaction has to be spent at a whole level rather than in one branch.
+    # Lossguide and Depthwise both split per node instead. The 2024 winner of
+    # this challenge family used LightGBM, which is leaf-wise by default.
+    grow = getattr(args, "grow_policy", "SymmetricTree")
+    if grow != "SymmetricTree":
+        kwargs["grow_policy"] = grow
+        # depth means different things per policy: for Lossguide it is a cap
+        # alongside max_leaves, and CatBoost rejects depth > 16 there anyway.
+        if grow == "Lossguide":
+            kwargs["max_leaves"] = getattr(args, "max_leaves", 64)
+            kwargs["depth"] = min(args.depth, 16)
+
     loss = getattr(args, "loss", "RMSE")
     kwargs["loss_function"] = loss
     if loss != "RMSE":
@@ -596,6 +612,13 @@ def main() -> None:
     # getattr default instead. Harmless until require_noplan_settings made the
     # mismatch fatal -- which is the guard doing its job, one caller late.
     parser.add_argument("--noplan-depth", type=int, default=6)
+    parser.add_argument("--grow-policy",
+                        choices=["SymmetricTree", "Depthwise", "Lossguide"],
+                        default="SymmetricTree",
+                        help="CatBoost tree growth; the default grows oblivious "
+                             "trees, which cannot spend a split on one airport")
+    parser.add_argument("--max-leaves", type=int, default=64,
+                        help="Lossguide only")
     parser.add_argument("--seeds", type=int, default=1, help="models per fold, averaged")
     parser.add_argument("--save-preds", action="store_true")
     parser.add_argument("--folds", default="", help="1-based fold indices, e.g. 1,3,5 (default all)")
