@@ -35,3 +35,5 @@ scoring 344,841 ranking rows
     per-airport baselines fitted for 10 of 10 airports
   residual mode (blend_apt): baseline mean 999.1s on the ranking set
 0:	learn: 460.9923643	total: 2.11s	remaining: 1h 27m 48s
+250:	learn: 275.7523441	total: 6m 29s	remaining: 58m 10s
+500:	learn: 251.6475715	total: 12m 57s	remaining: 51m 41s
