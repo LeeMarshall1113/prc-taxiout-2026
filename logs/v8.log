@@ -1,0 +1,14 @@
+=== v8 start 00:28:46Z ===
+restored to the model: ['arr_taxi_60min', 'dep_rwy_30min', 'dep_rwy_headway', 'sched_demand_30min', 'wx_age_min', 'wx_ceiling_ft', 'wx_deice_risk', 'wx_dewpoint_c', 'wx_freezing', 'wx_gust_kt', 'wx_heavy_precip', 'wx_lowvis', 'wx_precip', 'wx_snow', 'wx_temp_c', 'wx_thunder', 'wx_visibility_km', 'wx_wind_kt']
+training on ALL 2,085,047 rows of 2025 (50 features, 3 seeds)
+C:\Users\hackathon\Documents\GitHub\prc-taxiout-2026\prc\weather.py:137: UserWarning: Sortedness of columns cannot be checked when 'by' groups provided
+  .join_asof(
+scoring 344,841 ranking rows
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.198  gap_lobt=+0.060  gap_sched=+0.003  const=+197.963
+    per-airport baselines fitted for 10 of 10 airports
+  residual mode (blend_apt): baseline mean 999.1s on the ranking set
+0:	learn: 460.9923643	total: 1.65s	remaining: 1h 8m 35s
+250:	learn: 275.7523441	total: 6m 55s	remaining: 1h 2m
+./scripts/run_v8.sh: line 43:  6707 Killed                  "$PY" -u -m prc.final --seeds 3 --iterations 2500 --threads 5 --noplan-model --noplan-split-lirf --residual --baseline blend_apt --keep "$WAVE2,$WX" --upload
+=== v8 exit 137 at 00:38:09Z ===
+=== waiting for prc-taxiout-333 at 00:39:06Z ===
