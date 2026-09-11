@@ -61,6 +61,10 @@ NUMERIC = [
     "mvt_sec_00",
     "arr_sub_day",
     "arr_sub_stand",
+    "turn_age",
+    "turn_taxi_in",
+    "turn_type_match",
+    "turn_op_match",
     "dep_30min",
     "arr_30min",
     "dep_60min",
@@ -445,6 +449,93 @@ def _join_arrival_substitution(frame: pl.DataFrame, day, stand) -> pl.DataFrame:
     )
 
 
+# A turnaround longer than this is not a turnaround. The cap matters for the
+# same reason _wave2 and _sequence_proxy cap: ranking.parquet holds January AND
+# July 2026 in one frame, so an uncapped backward search hands July's first
+# departure from a stand an arrival from January.
+_MAX_TURN_S = 24 * 3600
+
+
+def _turnaround(frame: pl.DataFrame) -> pl.DataFrame:
+    """What the aircraft now leaving this stand did when it ARRIVED at it.
+
+    The competition blanks BLOCK_TIME and TAXITIME for departures only, so an
+    arrival's on-block time and its taxi-in survive into ranking.parquet in full.
+    For a departure that is a turnaround, the arrival that occupied the stand is
+    the same airframe, and its taxi-in measured the same apron on the same day.
+
+    Four columns, all strictly backward-looking from the departure's wheels-up:
+
+        turn_age        seconds since that arrival reached the stand
+        turn_taxi_in    its taxi-in, in seconds
+        turn_type_match its aircraft type equals this departure's
+        turn_op_match   its callsign operator equals this departure's
+
+    The two match flags are what separate a real turnaround from an unrelated
+    aircraft that happened to use the stand earlier; without them `turn_age` is
+    just stand-occupancy noise.
+
+    `zestful-fountain` measure this family standalone at 332.674 -> 326.346 on
+    the Jan/Jul fold and 272.272 -> 267.592 on Feb/Aug.
+
+    Must be called on the FULL frame, before build() drops arrivals.
+    """
+    arr = (
+        frame.filter(pl.col("PHASE_mvt") == "ARR")
+        .select(
+            pl.col("ADES_mvt").alias("_apt"),
+            pl.col("STAND_mvt").alias("_stand"),
+            pl.col("BLOCK_TIME_UTC_mvt").alias("_on_block"),
+            pl.col("TAXITIME_SEC_mvt").cast(pl.Float64).alias("turn_taxi_in"),
+            pl.col("AIRCRAFT_TYPE_mvt").alias("_a_type"),
+            pl.col("FLIGHT_mvt").str.extract(r"^([A-Z]{2,3})", 1).alias("_a_op"),
+        )
+        .drop_nulls("_on_block")
+        .sort("_on_block")
+    )
+    if arr.height == 0:
+        return None
+    return arr
+
+
+def _join_turnaround(frame: pl.DataFrame, arr) -> pl.DataFrame:
+    empty = {
+        "turn_age": pl.Float64, "turn_taxi_in": pl.Float64,
+        "turn_type_match": pl.Int8, "turn_op_match": pl.Int8,
+    }
+    if arr is None:
+        return frame.with_columns([pl.lit(None, dtype=t).alias(c)
+                                   for c, t in empty.items()])
+    out = (
+        frame.with_columns(
+            pl.col("ADEP_mvt").alias("_apt"),
+            pl.col("STAND_mvt").alias("_stand"),
+            pl.col("FLIGHT_mvt").str.extract(r"^([A-Z]{2,3})", 1).alias("_d_op"),
+        )
+        .sort("MVT_TIME_UTC_mvt")
+        .join_asof(arr, left_on="MVT_TIME_UTC_mvt", right_on="_on_block",
+                   by=["_apt", "_stand"], strategy="backward")
+        .with_columns(
+            (pl.col("MVT_TIME_UTC_mvt") - pl.col("_on_block"))
+            .dt.total_seconds().cast(pl.Float64).alias("turn_age")
+        )
+    )
+    stale = pl.col("turn_age") > _MAX_TURN_S
+    return (
+        out.with_columns(
+            pl.when(stale).then(None).otherwise(pl.col("turn_age")).alias("turn_age"),
+            pl.when(stale).then(None).otherwise(pl.col("turn_taxi_in")).alias("turn_taxi_in"),
+            pl.when(stale).then(None)
+              .otherwise((pl.col("_a_type") == pl.col("AIRCRAFT_TYPE_mvt")).cast(pl.Int8))
+              .alias("turn_type_match"),
+            pl.when(stale).then(None)
+              .otherwise((pl.col("_a_op") == pl.col("_d_op")).cast(pl.Int8))
+              .alias("turn_op_match"),
+        )
+        .drop("_apt", "_stand", "_on_block", "_a_type", "_a_op", "_d_op")
+    )
+
+
 def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
     """Turn a raw movements frame into the model matrix (departures only).
 
@@ -452,6 +543,7 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
     are needed first to compute arrival pressure.
     """
     arr_day, arr_stand = _arrival_substitution_tables(frame)
+    turn_arr = _turnaround(frame)
     congestion = _congestion(frame)
     congestion.update(_wave2(frame))
     congestion.update(_runway_config(frame))
@@ -560,6 +652,7 @@ def build(frame: pl.DataFrame, with_target: bool = True) -> pl.DataFrame:
 
 
     frame = _join_arrival_substitution(frame, arr_day, arr_stand)
+    frame = _join_turnaround(frame, turn_arr)
 
     built = [f for f in FEATURES if f not in REFERENCE]
     keep = ["MVT_ID_mvt", "ADEP_mvt", "STAND_mvt", "RUNWAY_mvt", *built]

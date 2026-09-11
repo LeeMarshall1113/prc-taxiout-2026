@@ -45,6 +45,7 @@ DROP = [
     "mvt_sec_00",
     "callsign_op", "lobt_minus_aobt",
     "arr_sub_day", "arr_sub_stand",
+    "turn_age", "turn_taxi_in", "turn_type_match", "turn_op_match",
     *_WEATHER,
 ]
 
