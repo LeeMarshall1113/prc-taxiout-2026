@@ -364,6 +364,41 @@ def fit_sched_blend(train, model, nfeats, ncats, args):
     return _SchedBlend(model, clf, nfeats, cf)
 
 
+class _GateDelay:
+    """Predict the GATE DELAY and subtract it from a known quantity.
+
+    The target is `y = MVT - BLOCK`. Both `MVT - SCHED` and `BLOCK - SCHED` are
+    differences from the same schedule, so exactly:
+
+        y = D - G        D = MVT - SCHED  (this is `gap_sched`, serve-available)
+                         G = BLOCK - SCHED (the training target)
+
+    Verified on all 1,488 LIRF no-plan rows: max |y - (D - G)| = 0.000000.
+
+    Why G is the better thing to regress on. Inside that population y mixes
+    three processes with wildly different scales -- an ordinary taxi, a schedule
+    substitution, a day rollover -- and spans 68 to 131,167s. In G two of those
+    three collapse to CONSTANTS: G is exactly 0 on the 48.5% of rows that are
+    substitutions, and about -86,400 on a rollover. sd falls 11,215 -> 5,005.
+
+    That is also why our substitution classifier captured nothing: it was asked
+    to identify a mixture, where this asks the regressor for a target whose
+    classes are already points.
+
+    Found in `likable-eagle`'s public repo, where it took their live score
+    316.97 -> 292.99 -> 288.90. They tested it at LFPG and rejected it there,
+    corr(T,D) being near zero -- matching our own finding that Rome is singular.
+    """
+
+    def __init__(self, model, col="gap_sched"):
+        self._m, self._col = model, col
+
+    def predict(self, frame):
+        d = np.nan_to_num(np.asarray(frame[self._col], dtype=float),
+                          nan=0.0, posinf=0.0, neginf=0.0)
+        return d - self._m.predict(frame)
+
+
 class _Bagged:
     """Mean of several fits differing only in seed."""
 
@@ -378,8 +413,17 @@ def _fit_one_noplan(sub, nfeats, ncats, args, weights=None):
     from catboost import CatBoostRegressor, Pool
 
     y = sub[TARGET].to_numpy().astype(float)
-    log_scale = getattr(args, "noplan_target", "raw") == "log"
-    fit_y = np.log1p(np.maximum(y, 0.0)) if log_scale else y
+    mode = getattr(args, "noplan_target", "raw")
+    log_scale = mode == "log"
+    gate = mode == "gate"
+    if gate:
+        # G = D - y, with D = gap_sched. Rows without a schedule gap cannot be
+        # expressed this way; they keep a zero gate, so the model predicts D.
+        d = np.nan_to_num(sub["gap_sched"].to_numpy().astype(float),
+                          nan=0.0, posinf=0.0, neginf=0.0)
+        fit_y = d - y
+    else:
+        fit_y = np.log1p(np.maximum(y, 0.0)) if log_scale else y
     x = sub.select(nfeats).to_pandas()
     # Variance knobs, all at CatBoost defaults until now. A residual autopsy on
     # real out-of-fold predictions found this group's error is 92% instability
@@ -427,6 +471,8 @@ def _fit_one_noplan(sub, nfeats, ncats, args, weights=None):
         m.fit(Pool(x, fit_y, cat_features=ncats, weight=weights))
         models.append(m)
     model = models[0] if nseeds == 1 else _Bagged(models)
+    if gate:
+        return _GateDelay(model)
     if not log_scale:
         return model
     smear = float(np.mean(np.exp(fit_y - model.predict(x))))
@@ -611,8 +657,30 @@ def run_fold(frame, held: tuple[int, int], feats, cat_idx, args) -> dict:
     from . import reference
 
     month = pl.col("month")
-    train = frame.filter(~month.is_in(held))
-    test = frame.filter(month.is_in(held))
+    # Holding out whole months means fold (1,7) never sees a single January or
+    # July row, while the submitted model trains on all twelve. final.py's own
+    # docstring has said so since it was written -- "we were withholding the only
+    # January and July the model could learn from, 24.3% of the data" -- and that
+    # is the most likely cause of the ~-35s gap between what fold (1,7) reads and
+    # what the board returns, which has held across four submissions.
+    #
+    # --holdout-days N holds out every Nth DAY inside the fold months instead, so
+    # the model trains on the rest of those months and sees the season it is
+    # being asked to predict. If that reads near the board, the offset is season
+    # exposure and our validation becomes calibrated rather than merely ordinal.
+    nth = int(getattr(args, "holdout_days", 0) or 0)
+    if nth > 1:
+        dom = pl.col("MVT_TIME_UTC_mvt").dt.day() if "MVT_TIME_UTC_mvt" in frame.columns             else pl.col("doy")
+        in_months = month.is_in(held)
+        is_test = in_months & (dom % nth == 0)
+        train = frame.filter(~is_test)
+        test = frame.filter(is_test)
+        print(f"    --holdout-days {nth}: testing on every {nth}th day of {held}; "
+              f"train {train.height:,} (includes {train.filter(in_months).height:,} "
+              f"rows from those months), test {test.height:,}")
+    else:
+        train = frame.filter(~month.is_in(held))
+        test = frame.filter(month.is_in(held))
     train, test = reference.attach(train, test)
     if getattr(args, "drop_dayoffset", False):
         before = train.height
@@ -695,6 +763,10 @@ def main() -> None:
     parser.add_argument("--loss", default="RMSE", help='e.g. "Huber:delta=2000"')
     parser.add_argument("--one-hot-max-size", type=int, default=0)
     parser.add_argument("--drop-dayoffset", action="store_true")
+    parser.add_argument("--holdout-days", type=int, default=0,
+                        help="hold out every Nth day INSIDE the fold months "
+                             "instead of the whole months, so the model sees "
+                             "the season it is scored on")
     parser.add_argument("--target", choices=["raw", "log"], default="raw")
     parser.add_argument("--noplan-model", action="store_true")
     parser.add_argument("--noplan-split-lirf", action="store_true")
@@ -708,7 +780,11 @@ def main() -> None:
                              "--noplan-split-lirf")
     parser.add_argument("--sched-blend", action="store_true",
                         help="blend no-plan predictions toward MVT-SCHED where substitution is likely")
-    parser.add_argument("--noplan-target", choices=["raw", "log"], default="raw")
+    parser.add_argument("--noplan-target", choices=["raw", "log", "gate"],
+                        default="raw",
+                        help="gate: regress BLOCK-SCHED and subtract it from "
+                             "gap_sched, so substitutions and rollovers become "
+                             "constants in the target")
     parser.add_argument("--noplan-train", choices=["group", "all", "weighted"], default="group")
     parser.add_argument("--noplan-weight", type=float, default=20.0)
     parser.add_argument("--noplan-iterations", type=int, default=600)

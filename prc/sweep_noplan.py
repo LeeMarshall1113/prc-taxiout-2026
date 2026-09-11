@@ -89,6 +89,12 @@ def main() -> None:
     # N/8 spurious-winner rate that would make a 3/3 record meaningless.
     GRID = {
         "ctrl":        {},
+        # Regress the GATE DELAY and subtract it from gap_sched. Inside this
+        # population two of the three generating processes become constants in
+        # the target: exactly 0 for a schedule substitution, about -86,400 for a
+        # day rollover. sd falls 11,215 -> 5,005 on LIRF's no-plan rows.
+        "gate":        {"noplan_target": "gate"},
+        "gate_d4":     {"noplan_target": "gate", "noplan_depth": 4},
         "l2_10":       {"noplan_l2": 10.0},
         "l2_30":       {"noplan_l2": 30.0},
         # min_data_in_leaf needs a per-node policy; on symmetric trees CatBoost

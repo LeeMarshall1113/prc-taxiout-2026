@@ -120,7 +120,11 @@ def main() -> None:
     parser.add_argument("--sched-blend", action="store_true",
                         help="blend toward gap_sched by predicted probability "
                              "that the off-block time is a schedule substitution")
-    parser.add_argument("--noplan-target", choices=["raw", "log"], default="raw")
+    parser.add_argument("--noplan-target", choices=["raw", "log", "gate"],
+                        default="raw",
+                        help="gate: regress BLOCK-SCHED and subtract it from "
+                             "gap_sched, so substitutions and rollovers become "
+                             "constants in the target")
     parser.add_argument("--noplan-train", choices=["group", "all", "weighted"],
                         default="group")
     parser.add_argument("--noplan-weight", type=float, default=20.0)
