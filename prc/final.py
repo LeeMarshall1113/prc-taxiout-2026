@@ -110,6 +110,10 @@ def main() -> None:
                         help="train the global model only on rows that have a "
                              "flight plan -- its predictions on the others are "
                              "discarded anyway")
+    parser.add_argument("--noplan-gate-routes", default="",
+                        help="airports whose no-plan model regresses the GATE "
+                             "DELAY instead of the target; needs gap_sched to be "
+                             "a live schedule, so LIRF and not much else")
     parser.add_argument("--noplan-routes", default="",
                         help="comma-separated ICAO codes that each get their own "
                              "no-plan model, e.g. LIRF,LFPG,LSZH; overrides "

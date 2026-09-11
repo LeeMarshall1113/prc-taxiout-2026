@@ -62,7 +62,7 @@ def settings(**over) -> SimpleNamespace:
         noplan_routes="LIRF", noplan_split_lirf=False, noplan_target="raw",
         noplan_train="group", noplan_weight=20.0, sched_blend=False,
         noplan_l2=None, noplan_min_data=0, noplan_rsm=None, noplan_seeds=1,
-        noplan_grow_policy="SymmetricTree",
+        noplan_grow_policy="SymmetricTree", noplan_gate_routes="",
     )
     base.update(over)
     missing = [k for k in NOPLAN_SETTINGS if k not in base]

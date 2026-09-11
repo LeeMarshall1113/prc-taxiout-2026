@@ -29,6 +29,8 @@ import json
 import time
 from pathlib import Path
 
+from types import SimpleNamespace
+
 import numpy as np
 import polars as pl
 
@@ -496,7 +498,7 @@ NOPLAN_SETTINGS = (
     "noplan_routes", "noplan_split_lirf", "noplan_target",
     "noplan_train", "noplan_weight", "sched_blend",
     "noplan_l2", "noplan_min_data", "noplan_rsm", "noplan_seeds",
-    "noplan_grow_policy",
+    "noplan_grow_policy", "noplan_gate_routes",
 )
 
 
@@ -624,13 +626,33 @@ def fit_noplan(train, feats, cat_features, args):
     routes = noplan_routes(args)
     if routes:
         models, sizes = {}, []
+        # The gate reparameterisation applies ONLY where it is named, because
+        # applying it everywhere failed by +667s. It needs gap_sched to be a
+        # live schedule; at the nine other airports it is often a stale
+        # long-haul one, and y = gap_sched - G is then meaningless. The team
+        # whose live score it moved (316.97 -> 288.90) applied it at Rome alone.
+        gate_at = {c.strip().upper()
+                   for c in (getattr(args, "noplan_gate_routes", "") or "").split(",")
+                   if c.strip()}
         for code in routes:
             rows = sub.filter(pl.col("ADEP_mvt") == code)
-            models[code] = (_fit_one_noplan(rows, nfeats, ncats, args)
+            a = args
+            if gate_at:
+                a = SimpleNamespace(**{**vars(args)} if hasattr(args, "__dict__")
+                                    else {k: getattr(args, k) for k in NOPLAN_SETTINGS})
+                a.noplan_target = "gate" if code in gate_at else "raw"
+            models[code] = (_fit_one_noplan(rows, nfeats, ncats, a)
                             if rows.height > 200 else None)
-            sizes.append(f"{code} {rows.height:,}" + ("" if models[code] else " (too thin)"))
+            sizes.append(f"{code} {rows.height:,}"
+                         + (" [gate]" if code in gate_at else "")
+                         + ("" if models[code] else " (too thin)"))
         other_rows = sub.filter(~pl.col("ADEP_mvt").is_in(list(routes)))
-        other = _fit_one_noplan(other_rows, nfeats, ncats, args)
+        a_other = args
+        if gate_at:
+            a_other = SimpleNamespace(**{**vars(args)} if hasattr(args, "__dict__")
+                                      else {k: getattr(args, k) for k in NOPLAN_SETTINGS})
+            a_other.noplan_target = "raw"
+        other = _fit_one_noplan(other_rows, nfeats, ncats, a_other)
         print(f"    no-plan routed: {', '.join(sizes)}, other {other_rows.height:,}")
         return _RoutedNoPlan(models, other, nfeats), nfeats
 
@@ -774,6 +796,10 @@ def main() -> None:
                         help="train the global model only on rows that have a "
                              "flight plan -- its predictions on the others are "
                              "discarded anyway")
+    parser.add_argument("--noplan-gate-routes", default="",
+                        help="airports whose no-plan model regresses the GATE "
+                             "DELAY instead of the target; needs gap_sched to be "
+                             "a live schedule, so LIRF and not much else")
     parser.add_argument("--noplan-routes", default="",
                         help="comma-separated ICAO codes that each get their own "
                              "no-plan model, e.g. LIRF,LFPG,LSZH; overrides "

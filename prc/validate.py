@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+import numpy as np
+
 # (year-agnostic) months held out locally, mirroring the ranking set.
 HOLDOUT_MONTHS: tuple[int, ...] = (1, 7)
 
@@ -89,3 +91,43 @@ def report(actual, predicted, label: str = "holdout") -> str:
         f"MAE={np.mean(np.abs(residual)):.2f}s  bias={np.mean(residual):+.2f}s  "
         f"p95|err|={np.percentile(np.abs(residual), 95):.1f}s"
     )
+
+
+def paired_bootstrap(y, pred_a, pred_b, n=2000, seed=1113):
+    """Is arm B better than arm A? Resample the PER-ROW difference, not two RMSEs.
+
+    Comparing two independently bootstrapped RMSEs throws away the pairing and
+    inflates the interval enormously: two teams measured this on the same task
+    and both found an unpaired single-score interval of roughly 56s standard
+    deviation against about 5s for the paired difference -- eleven times less
+    sensitive. One of them shipped a change that was "significant" at -5.42s
+    unpaired and moved +0.57s on the real board.
+
+    Returns (mean delta RMSE, low, high) at the 95% level, where negative means
+    B beats A. The statistic is the difference in RMSE computed on the SAME
+    resampled rows, so the shared difficulty of those rows cancels.
+    """
+    y = np.asarray(y, dtype=float)
+    a = np.asarray(pred_a, dtype=float)
+    b = np.asarray(pred_b, dtype=float)
+    sa, sb = (y - a) ** 2, (y - b) ** 2
+    rng = np.random.default_rng(seed)
+    m = len(y)
+    out = np.empty(n)
+    for i in range(n):
+        idx = rng.integers(0, m, m)
+        out[i] = np.sqrt(sb[idx].mean()) - np.sqrt(sa[idx].mean())
+    return float(np.sqrt(sb.mean()) - np.sqrt(sa.mean())),         float(np.percentile(out, 2.5)), float(np.percentile(out, 97.5))
+
+
+def unpaired_bootstrap(y, pred_a, pred_b, n=2000, seed=1113):
+    """The wrong way, kept so the difference can be shown rather than asserted."""
+    y = np.asarray(y, dtype=float)
+    rng = np.random.default_rng(seed)
+    m = len(y)
+    ra = np.empty(n)
+    rb = np.empty(n)
+    for i in range(n):
+        ra[i] = rmse(y[rng.integers(0, m, m)], np.asarray(pred_a)[rng.integers(0, m, m)])
+        rb[i] = rmse(y[rng.integers(0, m, m)], np.asarray(pred_b)[rng.integers(0, m, m)])
+    return float(ra.std()), float(rb.std())
