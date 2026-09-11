@@ -1,1 +1,14 @@
 [wait] not granted
+=== v12 start 02:29:04Z ===
+restored to the model: ['arr_taxi_60min', 'callsign_op', 'dep_rwy_30min', 'dep_rwy_headway', 'sched_demand_30min', 'wx_age_min', 'wx_ceiling_ft', 'wx_deice_risk', 'wx_dewpoint_c', 'wx_freezing', 'wx_gust_kt', 'wx_heavy_precip', 'wx_lowvis', 'wx_precip', 'wx_snow', 'wx_temp_c', 'wx_thunder', 'wx_visibility_km', 'wx_wind_kt']
+training on ALL 2,085,047 rows of 2025 (51 features, 3 seeds)
+C:\Users\hackathon\Documents\GitHub\prc-taxiout-2026\prc\weather.py:137: UserWarning: Sortedness of columns cannot be checked when 'by' groups provided
+  .join_asof(
+scoring 344,841 ranking rows
+    baseline blend: gap_aobt=+0.431  gap_eobt=+0.198  gap_lobt=+0.060  gap_sched=+0.003  const=+197.963
+    per-airport baselines fitted for 10 of 10 airports
+  --bulk-plan-only: global model fits 2,062,577 of 2,085,047 rows
+  residual mode (blend_apt): baseline mean 999.1s on the ranking set
+0:	learn: 281.7908441	total: 1.59s	remaining: 1h 6m 12s
+250:	learn: 221.2359741	total: 6m 24s	remaining: 57m 21s
+500:	learn: 213.8227250	total: 13m 48s	remaining: 55m 5s
